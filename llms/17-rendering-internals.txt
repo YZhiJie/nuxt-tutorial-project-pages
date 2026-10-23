@@ -1,0 +1,168 @@
+# 17. Nuxt 渲染内部机制（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/17-rendering-internals
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 17. Nuxt 渲染内部机制
+
+> 本章示例：`app/nuxt.config.ts`、`app/pages/render/isr.vue`、`app/components/ServerClock.server.vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/render/isr` 与 `http://localhost:3000/render/hybrid`
+
+## 概念解析
+
+**Nuxt 的渲染模式不是全站开关，而是按路由逐条决策的**。面对一条新路由，先问三个问题：内容需要 SEO 吗？数据更新频率多高？页面是否强依赖用户态？答案组合出五种模式：SSR（默认，每请求服务端渲染，适合个性化与实时数据）、SSG/`prerender`（构建期生成 HTML，适合营销页与文档）、ISR/`isr: 秒数`（静态副本 + 过期后台再生，适合内容站）、SWR/`swr: 秒数`（与 ISR 同语义，命中即返回、过期异步再生）、CSR/`ssr: false`（纯客户端渲染，适合后台管理）。决策树的核心原则是：**能用静态就不用动态，能用边缘缓存就不打到渲染进程**。
+
+**Nitro 渲染管线是理解一切的骨架**。一个 SSR 请求的生命周期：`request → Nitro middleware → routeRules 匹配（缓存命中则直接短路返回）→ event handler → Vue renderToString → payload 序列化注入 → HTML 响应`。其中 `renderToString` 执行所有页面的 `async setup`，`useFetch` 的结果被收集进 payload；payload 以 `window.__NUXT__` 内联进 HTML（或预渲染时抽成独立 `_payload.json`）。理解这条管线后，「为什么水合不重复请求」「为什么 routeRules 优先于页面代码生效」就都顺理成章。
+
+**水合（hydration）是客户端 Vue 接管服务端 HTML 的过程**，它要求两端渲染结果严格一致。`hydration mismatch` 的常见来源只有三类：**时间/随机数**（`new Date()`、`Math.random()` 在两端结果不同）、**浏览器 API**（`window`、`localStorage` 服务端不存在）、**数据不一致**（服务端取的数与客户端初始态不同）。排查手段：DevTools Console 的 mismatch 警告会指出具体节点；用 `<ClientOnly>` 包裹纯客户端组件，或用 `onMounted` 延后执行，是最常用的两条止血带。
+
+**岛屿架构让水合从「整页」细化为「按组件」**。`experimental.componentIslands` 开启后，`<NuxtIsland>` 可以把某个组件单独在服务端渲染成 HTML 孤岛，客户端只水合这个岛；`.server.vue` 后缀的组件则永远只在服务端渲染、零客户端 JS 代价。这带来一种新的设计范式：**页面骨架静态化，交互热点孤岛化**，把 JS 体积精确压缩到真正需要交互的部分。
+
+**payload 提取是静态站秒开的秘密**。`experimental.payloadExtraction`（预渲染时默认启用）把页面的异步数据抽成 `_payload.json`，客户端导航到预渲染页时直接取这个 JSON 而非重新请求 API。配合 `usePayload` / `useNuxtData` 可以在代码里显式读取这份数据；理解它，就能解释「为什么 generate 出来的静态站，二级页面切换也能秒开」。
+
+## 典型应用场景
+
+- **内容站混合渲染**：首页 `prerender`、详情页 `isr: 3600`、搜索页 SSR，一个站点三种策略共存。
+- **后台管理系统**：`'/admin/**': { ssr: false }`，规避鉴权态水合问题，服务端零渲染开销。
+- **营销落地页**：全量 `prerender` + 岛屿化少量交互组件，Lighthouse 满分起步。
+- **个性化首页**：SSR + 边缘缓存 `routeRules` 的 `cache` 规则按 cookie 分组缓存。
+- **纯静态组件岛**：文章页正文 `.server.vue` 渲染，评论框单独做成 `<NuxtIsland>`。
+- **水合问题排查**：时间戳、A/B 随机分桶、UA 判定类组件统一 `<ClientOnly>` 兜底。
+
+## 完整代码示例
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    experimental: {
+        // 开启组件岛屿，允许 <NuxtIsland> 与选择性水合
+        componentIslands: true,
+        // 预渲染页面提取 payload 为独立 JSON（generate 时默认开启）
+        payloadExtraction: true
+    },
+    routeRules: {
+        // 五种模式各配一条，便于同站对比
+        '/render/ssr': { ssr: true },
+        '/render/csr': { ssr: false },
+        '/render/static': { prerender: true },
+        '/render/isr': { isr: 60 },
+        '/render/swr': { swr: 60 }
+    },
+    compatibilityDate: '2025-07-15'
+})
+```
+
+> 运行方式：`cd app && npm install && npm run dev`，逐一访问 `http://localhost:3000/render/isr` 等路由；再 `npm run build && npm run preview`，用 DevTools 的 View Source 对比五种模式首屏 HTML 的差异。
+
+```vue
+<!-- 文件: app/pages/render/isr.vue -->
+<script setup lang="ts">
+    // ISR 页：服务端渲染时间戳会被缓存 60 秒
+    // 注意：时间戳是经典 mismatch 来源，必须只在服务端生成一次
+    const { data } = await useAsyncData('isr-clock', () =>
+        $fetch<{ renderedAt: string }>('/api/hello').then(() => ({
+            renderedAt: new Date().toISOString()
+        }))
+    )
+</script>
+
+<template>
+    <main>
+        <h1>ISR 演示页</h1>
+        <p>本页 HTML 由服务端渲染于：{{ data?.renderedAt }}</p>
+        <p>60 秒内刷新该时间不变（命中缓存），过期后后台再生。</p>
+        <NuxtLink to="/render/hybrid">去看岛屿演示 →</NuxtLink>
+    </main>
+</template>
+```
+
+> 运行方式：`npm run dev` 下路由规则不生效，需 `npm run build && npm run preview` 后访问 `http://localhost:3000/render/isr`，连续刷新观察时间戳是否变化。
+
+```vue
+<!-- 文件: app/components/ServerClock.server.vue -->
+<script setup lang="ts">
+    // .server.vue 后缀：本组件只在服务端渲染，不进客户端 bundle
+    const now = new Date().toLocaleString('zh-CN')
+</script>
+
+<template>
+    <p class="server-clock">服务端时钟：{{ now }}（零客户端 JS）</p>
+</template>
+```
+
+```vue
+<!-- 文件: app/pages/render/hybrid.vue -->
+<script setup lang="ts">
+    const count = ref(0)
+</script>
+
+<template>
+    <main>
+        <h1>混合渲染：静态骨架 + 交互岛</h1>
+        <!-- 纯服务端组件，不水合、零 JS 代价 -->
+        <ServerClock />
+        <!-- 交互热点单独成岛，只水合这一块 -->
+        <NuxtIsland name="CounterBox" :props="{ initial: 0 }" />
+        <button type="button" @click="count++">页内计数 {{ count }}</button>
+    </main>
+</template>
+```
+
+> 运行方式：`npm run build && npm run preview` 后访问 `http://localhost:3000/render/hybrid`，在 DevTools Network 面板过滤 JS，确认 `ServerClock` 没有对应的客户端 chunk 下载。
+
+## 最佳实践
+
+1. **先画渲染决策树再写代码**：对每条路由按「SEO 需求 × 更新频率 × 用户态依赖」三问归类，把结论写进 `routeRules`，而不是在页面里用运行时 hack 弥补选错的模式。
+2. **mismatch 三嫌疑犯优先排查**：看到 hydration 警告，先查 `Date`/`Math.random`，再查 `window`/`localStorage`，最后查两端数据源差异；90% 的问题不出这三类。
+3. **能 `.server.vue` 就不 `<ClientOnly>`**：前者是「永不发 JS 到客户端」，后者是「发了 JS 但只在客户端跑」，性能意义完全不同，优先选前者。
+4. **payload 能 `pick` 就别全量**：`useFetch` 的 `pick`/`transform` 裁剪字段直接减小 `__NUXT__` 体积，大列表页尤其明显。
+5. **ISR 的 ttl 按业务容忍度取值**：编辑能接受多长延迟就给多长 ttl；盲目设 10 秒不如直接用 SSR，缓存命中率才是 ISR 的价值来源。
+6. **用 `nuxi preview` 验证渲染行为**：dev 模式不执行 `routeRules` 缓存与 ISR 语义，一切渲染结论以 preview/生产为准。
+
+## 常见问题
+
+### Q：`routeRules` 在 `npm run dev` 下好像没生效？
+
+A：dev 模式为了热更新速度，不执行 ISR/SWR 缓存语义（`ssr: false`、`redirect`、`headers` 等基本规则仍生效）。验证缓存行为请用 `npm run build && npm run preview`。
+
+### Q：水合 mismatch 警告里 `data-v-xxx` 节点对不上，怎么定位到具体组件？
+
+A：Console 警告会打印服务端 HTML 与客户端 VNode 的对比片段，结合 `data-v-*` 属性在源码里全局搜索即可定位组件；也可以临时在怀疑的组件外套 `<ClientOnly>` 做二分排除。
+
+### Q：`<NuxtIsland>` 里的组件能访问 `useRoute`、`useCookie` 吗？
+
+A：岛屿组件在隔离的上下文中渲染，能拿到服务端传入的 props，但不应依赖页面级的响应式状态。把岛屿当「纯函数组件」用：输入 props、输出 HTML，交互逻辑内聚在岛内部。
+
+### Q：payload 提取后 `_payload.json` 会不会暴露敏感数据？
+
+A：payload 内容就是页面 `useFetch`/`useAsyncData` 返回的数据，凡是序列化进 payload 的东西用户都能在 HTML 源码里看到——敏感数据本就不该进 payload，应在客户端二次请求或 `server` 端私有化处理。
+
+## 小结
+
+- 渲染模式按路由决策：SSR / SSG / ISR / SWR / CSR，三问法选型（SEO、更新频率、用户态）。
+- Nitro 管线：request → middleware → routeRules → renderToString → payload 注入 → HTML。
+- hydration mismatch 三大来源：时间/随机数、浏览器 API、两端数据不一致。
+- 岛屿架构：`.server.vue` 零 JS、`<NuxtIsland>` 选择性水合，静态骨架 + 交互热点。
+- payload 提取生成 `_payload.json`，静态站客户端导航免重取数据。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】一个「文章详情页，编辑每天更新几次，需要 SEO」该选哪种渲染模式，routeRules 怎么写？</b></summary>
+
+选 ISR：`'/articles/**': { isr: 3600 }`。需要 SEO 排除 CSR，更新频率低排除 SSR，需要覆盖新增文章排除纯 `prerender`；ISR 静态副本扛流量、过期后台再生，是内容站的标准答案。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】页面里 `new Date().toLocaleString()` 导致 hydration mismatch，给出两种修法并说明差异。</b></summary>
+
+修法一：把时间移进 `.server.vue` 组件或用 `useAsyncData` 在服务端取一次，客户端从 payload 复用——HTML 自带时间，零 mismatch 且零额外 JS；修法二：用 `<ClientOnly>` 包裹，服务端不渲染该片段，客户端挂载后再生成——简单但首屏缺这块内容。前者优先。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】`&lt;NuxtIsland&gt;` 与 `.server.vue` 都能减少客户端 JS，二者的本质区别是什么？</b></summary>
+
+`.server.vue` 是纯服务端组件：永远不参与水合、不发送客户端代码，适合零交互的静态片段；`<NuxtIsland>` 是选择性水合：组件在服务端渲染成孤岛 HTML，客户端只对这一小块做水合以恢复交互能力，适合「局部可交互」的热点组件。一句话：前者不要交互，后者要交互但只想付局部的 JS 成本。
+
+</details>

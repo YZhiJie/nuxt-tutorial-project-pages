@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Nuxt 4 实战教程</title>
+    <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/</link>
+    <atom:link href="https://yzhijie.github.io/nuxt-tutorial-project-pages/rss.xml" rel="self" type="application/rss+xml"/>
+    <description>从入门到精通的 Nuxt 4 系统教程：24 章结构化文档 + 8 话四格漫画 + 可运行示例工程，覆盖 SSR/SSG/ISR、Nitro、Pinia、性能优化、安全、测试、可观测性。</description>
+    <language>zh-CN</language>
+    <lastBuildDate>Fri, 23 Oct 2026 08:03:43 GMT</lastBuildDate>
+    <item>
+      <title>24. 可观测性与生产调优</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/24-observability</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/24-observability</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：app/server/plugins/observability.ts、app/plugins/web-vitals.client.ts、app/pages/dashboard.vue、app/composables/useFeatureFlag.ts</description>
+    </item>
+    <item>
+      <title>23. Nuxt 生态主流方案</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/23-ecosystem-solutions</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/23-ecosystem-solutions</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：app/nuxt.config.ts、app/pages/docs/[...slug].vue、app/pages/index.vue、app/server/api/auth/github.get.ts</description>
+    </item>
+    <item>
+      <title>22. 测试体系进阶</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/22-testing-advanced</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/22-testing-advanced</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：app/vitest.config.ts、app/tests/composables/useNotes.test.ts、app/tests/components/NoteCard.test.ts、app/tests/e2e/notes.spec.ts</description>
+    </item>
+    <item>
+      <title>21. Nuxt 安全实战</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/21-security</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/21-security</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：app/server/middleware/01.security.ts、app/server/api/auth/login.post.ts、app/utils/sanitize.ts、app/nuxt.config.ts</description>
+    </item>
+    <item>
+      <title>20. 大型 Nuxt 应用架构</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/20-large-scale-architecture</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/20-large-scale-architecture</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：layers/base/nuxt.config.ts、modules/audit/index.ts、pnpm-workspace.yaml、app/nuxt.config.ts</description>
+    </item>
+    <item>
+      <title>19. 数据缓存与状态一致性</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/19-data-caching</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/19-data-caching</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：app/composables/useNotesCached.ts、app/pages/notes/admin.vue、app/nuxt.config.ts</description>
+    </item>
+    <item>
+      <title>18. 性能优化与 Core Web Vitals</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/18-performance</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/18-performance</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：app/nuxt.config.ts、app/plugins/web-vitals.client.ts、app/components/NoteCard.vue</description>
+    </item>
+    <item>
+      <title>17. Nuxt 渲染内部机制</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/17-rendering-internals</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/17-rendering-internals</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：app/nuxt.config.ts、app/pages/render/isr.vue、app/components/ServerClock.server.vue</description>
+    </item>
+    <item>
+      <title>16. 部署上线全攻略</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/16-deploy</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/16-deploy</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：app/nuxt.config.ts、Dockerfile、.github/workflows/deploy.yml 等</description>
+    </item>
+    <item>
+      <title>15. 构建与预渲染策略</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/15-build-prerender</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/15-build-prerender</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：app/nuxt.config.ts、package.json 等</description>
+    </item>
+    <item>
+      <title>14. TypeScript 与测试</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/14-typescript-testing</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/14-typescript-testing</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：tsconfig.json、shared/types/note.ts、vitest.config.ts、tests/format.test.ts、app/pages/notes/index.vue</description>
+    </item>
+    <item>
+      <title>13. 插件、模块与 SEO</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/13-plugins-modules-seo</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/13-plugins-modules-seo</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：app/plugins/01.hello.client.ts、app/plugins/02.api.ts、app/nuxt.config.ts、app/pages/notes/[id].vue</description>
+    </item>
+    <item>
+      <title>12. 全栈实战：存储与鉴权</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/12-fullstack</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/12-fullstack</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：server/utils/notes-store.ts、server/api/auth/、app/pages/login.vue、app/middleware/auth.ts</description>
+    </item>
+    <item>
+      <title>11. Nitro 服务端 API</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/11-server-api</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/11-server-api</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：server/api/hello.get.ts、server/api/notes/、server/middleware/logger.ts</description>
+    </item>
+    <item>
+      <title>10. composables 与 Pinia</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/10-composables-pinia</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/10-composables-pinia</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：app/composables/useNotes.ts、app/stores/counter.ts、app/stores/user.ts、app/pages/playground.vue</description>
+    </item>
+    <item>
+      <title>09. useState 与 SSR 状态</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/09-usestate</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/09-usestate</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:43 GMT</pubDate>
+      <description>本章示例：app/composables/useCounter.ts、app/pages/playground.vue、app/pages/dashboard.vue</description>
+    </item>
+    <item>
+      <title>08. $fetch 与请求进阶</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/08-fetch-advanced</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/08-fetch-advanced</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:42 GMT</pubDate>
+      <description>本章示例：app/plugins/02.api.ts、app/pages/login.vue、app/server/api/notes/[id].get.ts、app/error.vue</description>
+    </item>
+    <item>
+      <title>07. useFetch 与 useAsyncData</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/07-usefetch</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/07-usefetch</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:42 GMT</pubDate>
+      <description>本章示例：app/pages/index.vue、app/pages/notes/index.vue、app/composables/useNotes.ts、app/pages/playground.vue</description>
+    </item>
+    <item>
+      <title>06. 布局系统与页面过渡</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/06-layouts</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/06-layouts</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:42 GMT</pubDate>
+      <description>本章示例：app/layouts/default.vue、app/layouts/blank.vue、app/pages/login.vue、app/app.vue</description>
+    </item>
+    <item>
+      <title>05. 组件开发与自动导入</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/05-components</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/05-components</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:42 GMT</pubDate>
+      <description>本章示例：app/components/NoteCard.vue、app/components/CounterBox.vue、app/components/AppHeader.vue、app/pages/playground.vue</description>
+    </item>
+    <item>
+      <title>04. 导航与路由中间件</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/04-navigation-middleware</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/04-navigation-middleware</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:42 GMT</pubDate>
+      <description>本章示例：app/components/AppHeader.vue、app/pages/login.vue、app/middleware/auth.ts、app/middleware/logger.global.ts</description>
+    </item>
+    <item>
+      <title>03. 文件路由与动态路由</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/03-file-based-routing</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/03-file-based-routing</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:42 GMT</pubDate>
+      <description>本章示例：app/pages/index.vue、app/pages/notes/index.vue、app/pages/notes/[id].vue</description>
+    </item>
+    <item>
+      <title>02. 项目初始化与开发环境</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/02-scaffolding</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/02-scaffolding</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:42 GMT</pubDate>
+      <description>本章示例：app/nuxt.config.ts、app/app.vue、app/tsconfig.json</description>
+    </item>
+    <item>
+      <title>01. Nuxt 4 全景认知</title>
+      <link>https://yzhijie.github.io/nuxt-tutorial-project-pages/01-what-is-nuxt</link>
+      <guid isPermaLink="true">https://yzhijie.github.io/nuxt-tutorial-project-pages/01-what-is-nuxt</guid>
+      <pubDate>Fri, 23 Oct 2026 08:03:42 GMT</pubDate>
+      <description>本章示例：app/nuxt.config.ts、shared/types/note.ts、app/pages/index.vue</description>
+    </item>
+  </channel>
+</rss>

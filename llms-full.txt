@@ -1,0 +1,4537 @@
+# nuxt-tutorial-project（Nuxt 4 实战教程）— 全文
+
+> 从入门到精通的 Nuxt 4 系统教程：24 章结构化文档（基础篇 01-08 / 进阶篇 09-16 / 精通篇 17-24），五段式体例（概念解析 / 典型应用场景 / 完整代码示例 / 最佳实践 / 常见问题）；另含 8 话四格漫画剧场与可运行示例工程 app/，覆盖 SSR/SSG/ISR、Nitro 服务端、Pinia 状态、数据缓存、性能优化、安全、测试与可观测性。
+> 本文件由 scripts/build-llms.mjs 自动拼接全部章节 Markdown 原文，改动内容后重跑即可。
+
+
+
+---
+
+<!-- 来源：01-what-is-nuxt.md -->
+
+# 01. Nuxt 4 全景认知
+
+> 本章示例：`app/nuxt.config.ts`、`shared/types/note.ts`、`app/pages/index.vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/`
+
+## 概念解析
+
+Nuxt 是构建在 Vue 3 之上的全栈应用框架：它在 Vue 的视图层能力之上，内置了文件路由、数据获取、服务端渲染、服务端 API（由 Nitro 引擎驱动）等一整套开箱即用的能力。Nuxt 的设计哲学是「约定优于配置」——目录结构即配置：把文件放进 `app/pages/` 就有了路由，把组件放进 `app/components/` 就能自动导入，开发者可以把精力集中在业务本身。
+
+渲染模式是理解 Nuxt 的第一把钥匙。Nuxt 支持完整的渲染谱系：SSR（服务端渲染，每个请求在服务器生成 HTML，兼顾 SEO 与动态内容）、SSG（静态站点生成，构建时产出纯静态 HTML，适合内容稳定的站点）、CSR（客户端渲染，与传统 Vue SPA 一致），以及 Nuxt 独门的混合渲染（Hybrid Rendering）——通过 `routeRules` 按路由粒度决定每条路径用哪种模式，例如营销页走 SSR/预渲染、后台管理走纯 CSR。
+
+从 Nuxt 3 升级到 Nuxt 4，最值得注意的变化有四点：一是源码目录默认迁入 `app/`（`app.vue`、`pages/`、`components/` 等都位于其下），与服务端代码、公共配置的边界更清晰；二是 `useFetch` / `useAsyncData` 使用相同 key 时会自动共享数据，跨组件重复请求成为历史；三是数据请求的 `data` 默认值改为 `shallowRef`，大型响应的性能更好；四是 `nuxt.config.ts` 中的 `compatibilityDate` 变为必填，用于锁定 Nitro 等平台行为，避免未来升级时出现意外行为变更。
+
+生态方面有三件利器：Nuxt Modules（如 `@pinia/nuxt`）让功能扩展一行配置即可接入；Nuxt DevTools 内置于开发服务器，可视化查看页面、组件、composables 与请求；Nitro 服务端引擎则让同一份代码能构建到 Node、静态托管、Serverless 与边缘运行时。什么时候选 Nuxt？当你需要 SEO、首屏性能、全栈一体或团队约定化开发时，它是 Vue 生态的首选；如果只是做一个纯内部、不需要 SEO 的轻量 SPA，或团队并非 Vue 技术栈，直接用 Vite + Vue 反而更轻。
+
+## 典型应用场景
+
+- **内容驱动型网站**：博客、文档站、营销页依赖 SEO 与首屏速度，SSR/SSG 直接命中痛点。
+- **全栈应用**：`server/api` 写接口、`app/pages` 写页面，一个仓库完成前后端，本教程的 LearnHub 示例即是如此。
+- **静态站点与文档**：`nuxi generate` 产出纯静态文件，可部署到任何静态托管，成本极低。
+- **混合渲染的企业系统**：对外页面 SSR 保证收录，`/admin/**` 关闭 SSR 走纯客户端，两端体验兼顾。
+- **统一团队工程化**：约定式目录 + 自动导入 + DevTools，减少项目之间的心智切换成本。
+
+## 完整代码示例
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    modules: ['@pinia/nuxt'],    // 通过模块生态接入 Pinia
+    runtimeConfig: {
+        public: {
+            siteName: 'Nuxt LearnHub'    // 暴露给客户端的公共配置
+        }
+    },
+    routeRules: {
+        '/admin/**': { ssr: false }    // 混合渲染：后台路径关闭 SSR，走纯客户端渲染
+    },
+    compatibilityDate: '2025-07-15'    // Nuxt 4 必填，锁定 Nitro 行为
+})
+```
+
+> 运行方式：`cd app && npm install && npm run dev`，访问 `http://localhost:3000/admin` 可看到客户端渲染的管理页，其余页面仍为服务端渲染。
+
+```ts
+// 文件: shared/types/note.ts
+// 前后端共享的类型定义，app 与 server 两侧均可引用
+export interface Note {
+    id: number
+    title: string
+    excerpt: string
+    content: string
+    tags: string[]
+    createdAt: string
+}
+```
+
+> 运行方式：无需单独运行，该类型在页面、组件与 `server/api` 中通过 `import type { Note } from '#shared/types/note'` 引用。
+
+```vue
+<!-- 文件: app/pages/index.vue -->
+<script setup lang="ts">
+import type { Note } from '#shared/types/note'
+
+// useFetch 自动完成 SSR 取数与水合；相同 key 的调用会自动共享数据（Nuxt 4 行为）
+const { data: notes, pending, error } = await useFetch<Note[]>('/api/notes')
+</script>
+
+<template>
+    <main>
+        <h1>学习笔记</h1>
+        <p v-if="pending">加载中……</p>
+        <p v-else-if="error">加载失败：{{ error.message }}</p>
+        <!-- NoteCard 位于 app/components/，自动导入无需 import -->
+        <NoteCard v-for="note in notes" :key="note.id" :note="note" />
+    </main>
+</template>
+```
+
+> 运行方式：`npm run dev` 后访问 `http://localhost:3000/` ，首页 HTML 在服务端渲染时已包含笔记列表。
+
+```vue
+<!-- 文件: app/components/NoteCard.vue -->
+<script setup lang="ts">
+import type { Note } from '#shared/types/note'
+
+// 组件 props 直接使用 shared/ 中的共享类型，前后端契约一致
+defineProps<{ note: Note }>()
+</script>
+
+<template>
+    <article>
+        <h3>{{ note.title }}</h3>
+        <p>{{ note.excerpt }}</p>
+        <!-- formatDate 来自 app/utils/format.ts，自动导入无需 import -->
+        <p>发布于：{{ formatDate(note.createdAt) }}</p>
+    </article>
+</template>
+```
+
+> 运行方式：该组件被 `app/pages/index.vue` 自动导入使用（无需注册），访问 `http://localhost:3000/` 即可看到渲染结果。
+
+## 最佳实践
+
+- **默认 SSR，按需降级**：先用 SSR 获得 SEO 与首屏优势，再对纯交互页面用 `routeRules` 关闭 SSR，而不是全站一刀切。
+- **公共类型放进 `shared/`**：`shared/types` 与 `shared/utils` 被 app 与 server 两侧共享，接口契约一处定义、处处复用。
+- **升级前先对齐 `compatibilityDate`**：它决定 Nitro 的行为基线，团队内保持一致可减少环境差异带来的怪问题。
+- **优先使用官方模块**：Pinia、Tailwind、图片优化等都有维护良好的 Nuxt Module，比手动接入省时且少踩坑。
+- **关注 data 的浅响应特性**：Nuxt 4 中 `data` 默认是 `shallowRef`，确需深层响应时再显式传 `{ deep: true }`，不要盲目沿用旧写法。
+
+## 常见问题
+
+### Q：Nuxt 4 必须使用 `app/` 目录吗？老项目迁上来会不会爆？
+A：`app/` 是 Nuxt 4 的默认源码目录，但框架仍兼容 Nuxt 3 的旧目录结构，按官方迁移指南逐步调整即可，不会强制一次性搬完。
+
+### Q：SSR 和 SSG 怎么选？
+A：内容频繁变化或千人千面选 SSR；内容在构建时就能确定、追求极低托管成本选 SSG（`nuxi generate`）。两者也可用 `routeRules` 混用，例如 `/` 预渲染、`/dashboard` 保持 SSR。
+
+### Q：`compatibilityDate` 填什么？可以不填吗？
+A：Nuxt 4 中必填。一般填写你开始使用当前 Nuxt 版本的日期（如 `'2025-07-15'`），它用于锁定 Nitro 预设的行为，具体日期含义以官方文档为准。
+
+### Q：一定要用 TypeScript 吗？
+A：不强制，但官方脚手架默认生成 `tsconfig.json`，composables 与 API 类型推断在 TS 下体验最好，本教程统一使用 TypeScript。
+
+## 小结
+
+- Nuxt 是 Vue 3 之上的全栈框架，约定优于配置，内置路由、数据获取与服务端能力。
+- 渲染谱系覆盖 SSR / SSG / CSR / 混合渲染，`routeRules` 可按路由粒度切换模式。
+- Nuxt 4 关键变化：`app/` 源码目录、同 key 数据自动共享、`data` 默认 `shallowRef`、`compatibilityDate` 必填。
+- 生态三剑客：Nuxt Modules、Nuxt DevTools、Nitro，让扩展、调试、部署都更顺滑。
+- 需要 SEO / 首屏性能 / 全栈一体时选 Nuxt；纯内部轻量 SPA 可直接用 Vite + Vue。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-1" target="_blank" rel="noopener">EP.01 初识 Nuxt 4</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. Nuxt 4 中如何让 `/admin/**` 路径使用纯客户端渲染，同时其余页面保持 SSR？</b></summary>
+
+在 `nuxt.config.ts` 中配置 `routeRules: { '/admin/**': { ssr: false } }`。这正是混合渲染的典型用法：按路由粒度控制渲染模式。
+
+</details>
+
+<details>
+<summary><b>2. Nuxt 4 相对 Nuxt 3，`useFetch` 有哪些行为变化？</b></summary>
+
+主要有两点：相同 key 的 `useFetch` / `useAsyncData` 调用会自动共享数据（跨组件去重）；返回的 `data` 默认值改为 `shallowRef`，需要深层响应时要显式传 `{ deep: true }`。
+
+</details>
+
+<details>
+<summary><b>3. 什么情况下不必选 Nuxt，直接用 Vite + Vue 更合适？</b></summary>
+
+当应用是不需要 SEO 的纯内部系统、交互极轻且没有服务端诉求时，Nuxt 的约定与服务端能力反而是额外负担，此时 Vite + Vue 的纯 SPA 更轻量直接。
+
+</details>
+
+
+---
+
+<!-- 来源：02-scaffolding.md -->
+
+# 02. 项目初始化与开发环境
+
+> 本章示例：`app/nuxt.config.ts`、`app/app.vue`、`app/tsconfig.json`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/`
+
+## 概念解析
+
+Nuxt 4 要求 Node.js 18.20 及以上版本（建议使用 LTS）。先用 `node -v` 确认环境，再使用官方脚手架命令 `npm create nuxt@latest <项目名>` 初始化项目——它会交互式地询问包管理器、是否初始化 git 仓库等选项，随后生成一套最小可运行的 Nuxt 4 工程。创建完成后进入目录执行 `npm install && npm run dev`，即可在 `http://localhost:3000` 看到页面。
+
+生成的目录结构体现了 Nuxt 4 的边界划分：`app/` 是应用源码目录（`app.vue`、`pages/`、`components/`、`layouts/`、`middleware/`、`composables/`、`utils/` 等都在其中）；`server/` 存放 Nitro 服务端代码（API、服务端中间件、插件）；`shared/` 存放前后端共享的类型与工具（在 app 中以 `#shared/...` 引用）；`public/` 是原样拷贝到站点根路径的静态资源目录；根部的 `nuxt.config.ts` 是唯一配置文件；`tsconfig.json` 通过 `extends: './.nuxt/tsconfig.json'` 继承 Nuxt 自动生成的类型配置，让自动导入的 API 也有完整类型提示。
+
+日常开发围绕 nuxi CLI 展开，常用命令如下：
+
+- `nuxi dev`：启动开发服务器，`--port` 可改端口。
+- `nuxi build`：构建生产产物。
+- `nuxi generate`：生成纯静态站点（SSG）。
+- `nuxi preview`：本地预览构建结果。
+- `nuxi prepare`：重新生成 `.nuxt` 类型，刚 clone 项目或 CI 中常用。
+- `nuxi typecheck`：全量类型检查（需安装 `typescript` 与 `vue-tsc`）。
+- `nuxi add <模块>`：一键安装并注册官方模块，如 `nuxi add @pinia/nuxt`。
+- `nuxi analyze`：分析构建产物体积。
+
+`package.json` 中的 `dev/build/generate/preview/postinstall` 脚本本质都是对 nuxi 的封装，也可以随时用 `npx nuxi <命令>` 直接调用。
+
+开发体验有两件法宝：一是 Nuxt DevTools，在开发服务器打开的页面中按 Shift + Alt + D（macOS 为 Shift + Option + D）即可呼出，可查看页面路由、组件依赖、composables 状态与请求耗时；二是入口文件 `app/app.vue`——当存在 `pages/` 目录时，用 `<NuxtLayout><NuxtPage /></NuxtLayout>` 承接布局与页面渲染。最后别忘了 `nuxt.config.ts` 里的 `compatibilityDate`：Nuxt 4 必填，用于锁定 Nitro 等平台行为，脚手架会自动写入一个日期，团队协作时不要随意改动。
+
+## 典型应用场景
+
+- **全新项目起步**：一条 `npm create nuxt@latest` 得到约定完备的工程，省去手工搭建路由、SSR、TS 的成本。
+- **团队协作统一基线**：`nuxi prepare` + 继承 `.nuxt/tsconfig.json`，保证每个成员与 CI 拿到一致的类型环境。
+- **接入生态模块**：`nuxi add @pinia/nuxt` 自动完成依赖安装与 `modules` 注册，避免手改配置遗漏。
+- **交付前验证**：`nuxi build` + `nuxi preview` 在本地模拟生产行为；纯静态站点则走 `nuxi generate`。
+- **质量门禁**：在 CI 中跑 `nuxi typecheck`，把类型错误拦在代码合并之前。
+
+## 完整代码示例
+
+```bash
+# 终端会话（macOS zsh），依次执行
+node -v                                  # 确认 >= 18.20，建议使用 LTS
+npm create nuxt@latest nuxt-learnhub     # 交互式创建项目，按提示选择包管理器等
+cd nuxt-learnhub
+npm install
+npm run dev                              # 启动开发服务器，默认 http://localhost:3000
+npx nuxi prepare                         # 重新生成 .nuxt 类型（clone 后 / CI 常用）
+npx nuxi typecheck                       # 全量类型检查（需 typescript 与 vue-tsc）
+npm run build && npm run preview         # 本地验证生产构建
+npm run generate                         # 如需纯静态站点（SSG）
+```
+
+> 运行方式：逐行在终端执行；最后一步启动后，在页面中按 Shift + Alt + D（macOS 为 Shift + Option + D）可打开 Nuxt DevTools。
+
+```vue
+<!-- 文件: app/app.vue -->
+<script setup lang="ts">
+// 应用入口：所有页面的公共外壳
+const config = useRuntimeConfig()
+const siteName = config.public.siteName    // 读取 nuxt.config.ts 暴露的公共配置
+</script>
+
+<template>
+    <!-- NuxtLayout 启用布局系统，NuxtPage 渲染当前路由页面 -->
+    <NuxtLayout>
+        <NuxtPage />
+    </NuxtLayout>
+</template>
+```
+
+> 运行方式：`npm run dev` 后访问 `http://localhost:3000/` ，`app.vue` 是所有页面的外壳；删除 `app.vue` 时 Nuxt 会使用内置默认入口。
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    devtools: { enabled: true },    // Nuxt DevTools（dev 下默认开启，此处显式声明）
+    modules: ['@pinia/nuxt'],    // nuxi add @pinia/nuxt 会自动写入这一行
+    runtimeConfig: {
+        public: {
+            siteName: 'Nuxt LearnHub'    // 客户端可通过 useRuntimeConfig().public.siteName 读取
+        }
+    },
+    routeRules: {
+        '/admin/**': { ssr: false }    // 后台路径走纯客户端渲染
+    },
+    compatibilityDate: '2025-07-15'    // 必填：锁定 Nitro 行为，团队内保持一致
+})
+```
+
+> 运行方式：修改该文件后开发服务器会自动重启生效；`nuxi add` 安装模块时会自动更新 `modules` 数组。
+
+```json
+// 文件: app/tsconfig.json
+// .nuxt/tsconfig.json 由 nuxi prepare 自动生成，内含路径别名与自动导入类型
+{
+    "extends": "./.nuxt/tsconfig.json"
+}
+```
+
+> 运行方式：执行 `npx nuxi prepare` 生成 `.nuxt/tsconfig.json` 后即可获得完整类型提示；该文件本身不需要手改。
+
+## 最佳实践
+
+- **Node 版本钉在 LTS**：Nuxt 4 要求 ≥ 18.20，建议团队统一 20/22 LTS，并用 `.nvmrc` 或 `engines` 字段固化。
+- **`postinstall: nuxi prepare` 不要删**：脚手架默认脚本，保证 clone 后装依赖即生成类型，CI 里同样受益。
+- **加模块用 `nuxi add`**：自动安装依赖并注册到 `modules`，比手动 `npm i` + 改配置更不容易出错。
+- **`.nuxt/` 不入库**：它是构建期生成物，默认已被 `.gitignore` 忽略；类型异常时先 `nuxi cleanup` 再 `nuxi prepare`。
+- **`compatibilityDate` 全队统一**：它影响 Nitro 行为，升级 Nuxt 时按官方指南评估是否调整，不要各自为政。
+- **客户端配置放 `runtimeConfig.public`**：站点名这类可公开配置放这里，服务端密钥永远不要进 `public`。
+
+## 常见问题
+
+### Q：`npm create nuxt@latest` 卡在交互界面或下载很慢怎么办？
+A：先确认 Node ≥ 18.20 且网络可访问 npm registry，必要时切换镜像源。交互项一般只有包管理器与是否初始化 git，按提示选择即可。
+
+### Q：`app/`、`server/`、`shared/` 的分工到底是什么？
+A：`app/` 放应用层源码（页面、组件、composables）；`server/` 放 Nitro 服务端代码（`server/api` 接口等）；`shared/` 放两侧共享的类型与工具，在 app 中以 `#shared/...` 引用。
+
+### Q：执行 `nuxi typecheck` 报错找不到 `vue-tsc`？
+A：类型检查需要安装 `typescript` 与 `vue-tsc` 开发依赖：`npm i -D typescript vue-tsc`，然后重新执行 `npx nuxi typecheck`。
+
+### Q：DevTools 呼不出来？
+A：DevTools 只在开发服务器（`nuxi dev`）下可用，需在页面获得焦点后按 Shift + Alt + D（macOS：Shift + Option + D）；也可点击页面上的 Nuxt DevTools 入口图标。
+
+## 小结
+
+- Node ≥ 18.20，用 `npm create nuxt@latest` 创建项目，`npm run dev` 启动开发服务器。
+- 目录边界：`app/` 应用源码、`server/` 服务端、`shared/` 前后端共享、`public/` 静态资源。
+- 根 `tsconfig.json` 继承 `.nuxt/tsconfig.json`，配合 `nuxi prepare` 获得完整自动导入类型。
+- nuxi 常用命令：dev / build / generate / preview / prepare / typecheck / add / analyze。
+- DevTools 快捷键 Shift + Alt + D（macOS Shift + Option + D）；`compatibilityDate` 必填且全队统一。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-1" target="_blank" rel="noopener">EP.01 初识 Nuxt 4</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 为什么 `tsconfig.json` 只需要一行 `extends: './.nuxt/tsconfig.json'`？</b></summary>
+
+Nuxt 在 `.nuxt/` 中自动生成了包含路径别名、自动导入类型声明的完整 TS 配置，根配置继承它即可让编辑器与 `nuxi typecheck` 识别这些能力；该生成文件由 `nuxi prepare` 产出，不入库。
+
+</details>
+
+<details>
+<summary><b>2. 想给项目接入 Pinia，最省事的命令是什么？它会做哪些事？</b></summary>
+
+执行 `npx nuxi add @pinia/nuxt`。它会自动安装 `@pinia/nuxt` 依赖并把 `'@pinia/nuxt'` 写入 `nuxt.config.ts` 的 `modules` 数组，免去手动配置。
+
+</details>
+
+<details>
+<summary><b>3. `nuxi build` 与 `nuxi generate` 的产物有什么区别？</b></summary>
+
+`build` 产出需要 Node 等运行时支撑的服务端应用（可含 SSR 与服务端 API）；`generate` 产出纯静态 HTML 与资源（SSG），可部署到任意静态托管。选择取决于是否需要服务端动态能力。
+
+</details>
+
+
+---
+
+<!-- 来源：03-file-based-routing.md -->
+
+# 03. 文件路由与动态路由
+
+> 本章示例：`app/pages/index.vue`、`app/pages/notes/index.vue`、`app/pages/notes/[id].vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/notes/1`
+
+## 概念解析
+
+Nuxt 的路由由文件系统驱动：只要 `app/pages/` 目录存在，Nuxt 就会自动接入 vue-router 并扫描其中的 `.vue` 文件生成路由表，无需手写任何路由配置（也可以在 `nuxt.config.ts` 中显式设置 `pages: true`）。`app/pages/index.vue` 对应 `/`，`app/pages/about.vue` 对应 `/about`，目录对应路径层级。如果项目没有 `pages/` 目录，Nuxt 会退化为只渲染 `app.vue` 的普通单页应用。
+
+动态路由用方括号声明：`app/pages/notes/[id].vue` 匹配 `/notes/1`、`/notes/42` 等路径，组件内通过 `useRoute()` 拿到 `route.params.id`——注意路由参数始终是字符串。需要匹配任意深度的路径时使用 catch-all：`app/pages/docs/[...slug].vue` 可匹配 `/docs/a/b/c`，此时 `route.params.slug` 是字符串数组。嵌套路由靠「同名组件 + 同名目录」实现：同时存在 `app/pages/notes.vue` 与 `app/pages/notes/` 目录时，`notes.vue` 成为父级组件，其中用 `<NuxtPage />` 作为子路由出口，目录下的页面渲染进这个出口——它比布局更细，适合页面内部再分层。
+
+路由健壮性由 `definePageMeta` 提供：`validate` 钩子可在进入页面前校验参数，返回 `false` 会显示 404 错误页（也可以返回 `{ statusCode, statusMessage }` 定制错误）。404 的定制有两条路：全局错误页用 `app/error.vue`，或在 catch-all 页面里自行渲染「未找到」并配合 `setResponseStatus(404)`。需要微调 vue-router 行为（如 `scrollBehavior`）时，在 `app/router.options.ts` 中导出路由配置即可，它会被合并进自动生成的路由。最后区分两个 composable：`useRoute` 返回当前路由的响应式对象（读参数、query 用它）；`useRouter` 返回路由器实例（`push`/`replace` 等方法），但在 setup 中做跳转更推荐对 SSR 友好的 `navigateTo`（下一章详述）。
+
+## 典型应用场景
+
+- **列表 → 详情**：`notes/index.vue` 渲染列表并支持 `?q=` 搜索，`notes/[id].vue` 渲染详情，是最常见的内容站结构。
+- **多段路径文档站**：`[...slug].vue` 一个页面吃下任意层级，配合内容接口渲染文档树。
+- **页面内分层**：详情页内再嵌套「编辑/预览」子页，用同名父组件 + `<NuxtPage />` 实现局部嵌套。
+- **参数防脏**：`validate` 拦截非数字 id、非法 slug，避免无意义请求打到接口。
+- **搜索与筛选**：用 `route.query` 驱动列表过滤，URL 可分享、可刷新、可后退。
+
+## 完整代码示例
+
+```vue
+<!-- 文件: app/pages/index.vue -->
+<script setup lang="ts">
+import type { Note } from '#shared/types/note'
+
+// 文件即路由：本文件对应路径 /
+const { data: notes, pending } = await useFetch<Note[]>('/api/notes')
+</script>
+
+<template>
+    <main>
+        <h1>学习笔记</h1>
+        <p v-if="pending">加载中……</p>
+        <!-- NoteCard 自动导入，无需 import -->
+        <NoteCard v-for="note in notes" :key="note.id" :note="note" />
+    </main>
+</template>
+```
+
+> 运行方式：`npm run dev` 后访问 `http://localhost:3000/` ，`app/pages/index.vue` 自动成为首页路由。
+
+```vue
+<!-- 文件: app/pages/notes/index.vue -->
+<script setup lang="ts">
+import type { Note } from '#shared/types/note'
+
+// 对应路径 /notes；用 route.query.q 驱动搜索，URL 可直接分享
+const route = useRoute()
+const keyword = computed(() => String(route.query.q ?? ''))
+
+const { data: notes } = await useFetch<Note[]>('/api/notes', {
+    query: { q: keyword },    // 把关键字带给接口
+    watch: [keyword]          // URL 中的 q 变化时自动重新请求
+})
+</script>
+
+<template>
+    <main>
+        <h1>笔记列表</h1>
+        <p v-if="keyword">搜索：{{ keyword }}</p>
+        <NoteCard v-for="note in notes" :key="note.id" :note="note" />
+    </main>
+</template>
+```
+
+> 运行方式：访问 `http://localhost:3000/notes?q=nuxt` ，修改地址栏中的 `q` 值，列表会随 query 变化自动刷新。
+
+```vue
+<!-- 文件: app/pages/notes/[id].vue -->
+<script setup lang="ts">
+import type { Note } from '#shared/types/note'
+
+// 动态路由：本文件匹配 /notes/:id
+definePageMeta({
+    // 进入页面前校验参数，非法 id 直接 404
+    validate: (route) => /^\d+$/.test(String(route.params.id))
+})
+
+const route = useRoute()
+// URL 写成 getter：同组件复用（/notes/1 → /notes/2）时会自动重新取数
+const { data: note } = await useFetch<Note>(() => `/api/notes/${route.params.id}`)
+
+// 按笔记内容动态设置 SEO 元信息
+useSeoMeta({
+    title: () => note.value?.title ?? '笔记详情',
+    description: () => note.value?.excerpt
+})
+</script>
+
+<template>
+    <article v-if="note">
+        <h1>{{ note.title }}</h1>
+        <p>{{ note.content }}</p>
+        <!-- formatDate 来自 app/utils/format.ts，自动导入 -->
+        <p>发布于：{{ formatDate(note.createdAt) }}</p>
+    </article>
+</template>
+```
+
+> 运行方式：访问 `http://localhost:3000/notes/1` 查看详情；访问 `http://localhost:3000/notes/abc` 会因 `validate` 失败返回 404。
+
+## 最佳实践
+
+- **路由参数当字符串处理**：`route.params.id` 是 `string`，与数字比较前先转换，或用 `validate` 正则把脏参数挡在页面外。
+- **catch-all 留给真正多级的场景**：能用 `[id]` 表达的单层参数不要用 `[...slug]`，数组参数的解析与匹配优先级都更复杂。
+- **嵌套路由与布局分工**：跨页面的公共外壳用 `layouts/`，单个页面内部的二级出口才用「同名父组件 + `<NuxtPage />`」。
+- **校验失败尽量返回 404 语义**：`validate` 返回 `false` 即 404；确需其他错误码时用 `{ statusCode, statusMessage }` 表达真实原因。
+- **路由微调集中到 `router.options.ts`**：`scrollBehavior` 等全局行为在这里改，不要在各页面手写 `window.scrollTo`。
+
+## 常见问题
+
+### Q：新增 `app/pages/` 里的文件后路由没生效？
+A：正常情况下 Nuxt 会自动重新生成路由；若开发服务器状态异常，保存文件触发 HMR，仍不行就重启 `nuxi dev`。另外确认文件在 Nuxt 4 源码目录 `app/pages/` 下，而不是仓库根的旧 `pages/`。
+
+### Q：`useRoute` 和 `useRouter` 到底怎么选？
+A：`useRoute` 读当前路由（params/query/hash），`useRouter` 拿路由器实例调 `push`/`replace`。但在 setup 或中间件里做跳转，优先用 `navigateTo`（第 04 章），它对 SSR 更友好。
+
+### Q：动态路由参数变化（/notes/1 → /notes/2）页面不重新取数？
+A：同组件复用时 setup 不会重跑，但 `route.params` 是响应式的。把 `useFetch` 的 URL 写成 getter（如 `() => \`/api/notes/${route.params.id}\``）或设置 `watch`，参数变化即自动重新请求。
+
+### Q：如何定制 404 页面？
+A：两种思路：全局错误页用 `app/error.vue`（配合 `clearError` 恢复导航）；或在 `[...slug].vue` 中自行渲染「未找到」，并用 `setResponseStatus(404)` 设置正确的状态码。
+
+## 小结
+
+- `app/pages/` 存在即启用文件路由，目录与文件名直接映射 URL，`index.vue` 对应目录根路径。
+- 动态段用 `[param]`，任意深度用 `[...slug]`（参数为数组），组件内用 `useRoute` 读取。
+- 嵌套路由 = 同名 `.vue` 父组件 + 同名目录 + `<NuxtPage />` 子出口。
+- `definePageMeta({ validate })` 在进入页面前校验参数，返回 `false` 显示 404。
+- 全局路由行为放 `app/router.options.ts`；读路由用 `useRoute`，实例方法用 `useRouter`，跳转优先 `navigateTo`。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-2" target="_blank" rel="noopener">EP.02 路由与导航</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. `app/pages/notes/[id].vue` 与 `app/pages/docs/[...slug].vue` 取到的参数有什么差别？</b></summary>
+
+`[id]` 只匹配单层路径，`route.params.id` 是字符串；`[...slug]` 匹配任意深度，`route.params.slug` 是字符串数组（如 `/docs/a/b` → `['a', 'b']`）。
+
+</details>
+
+<details>
+<summary><b>2. 如何在用户访问 `/notes/abc` 时直接返回 404，而不是让接口报错？</b></summary>
+
+在页面中写 `definePageMeta({ validate: (route) => /^\d+$/.test(String(route.params.id)) })`。`validate` 在进入页面前执行，返回 `false` 时 Nuxt 直接展示 404 错误页，请求不会打到接口。
+
+</details>
+
+<details>
+<summary><b>3. 想在 `/notes` 页面内再嵌套二级页面（如 `/notes/1`），文件应该怎么组织？</b></summary>
+
+创建 `app/pages/notes.vue` 作为父组件（内部放置 `<NuxtPage />` 作为子路由出口），并在同名目录 `app/pages/notes/` 下放置 `index.vue`、`[id].vue` 等子页面；同名文件与目录会被 Nuxt 组合成嵌套路由。
+
+</details>
+
+
+---
+
+<!-- 来源：04-navigation-middleware.md -->
+
+# 04. 导航与路由中间件
+
+> 本章示例：`app/components/AppHeader.vue`、`app/pages/login.vue`、`app/middleware/auth.ts`、`app/middleware/logger.global.ts`
+> 运行方式：`cd app && npm install && npm run dev`，未登录访问 `http://localhost:3000/dashboard` 会被重定向到 /login
+
+## 概念解析
+
+模板内导航用 `<NuxtLink>`：它是 vue-router `<RouterLink>` 的增强版。传入站内路径时会智能预取（默认链接进入视口即预取对应页面的 chunk 与数据），跳转几乎无感；传入 `http(s)://` 绝对地址时会渲染成普通 `<a>` 标签并自动带上 `rel="noopener noreferrer"`，也可用 `external` 显式声明。当前路由与链接匹配时会自动加上 `router-link-active` 类（精确匹配加 `router-link-exact-active`），用 `active-class` / `exact-active-class` 可改名，做导航高亮零成本。
+
+编程式导航用 `navigateTo`：它在 setup、事件回调与中间件中都可用，SSR 时会转成真实的 HTTP 重定向。常用选项：`{ external: true }` 跳外部站点；`{ redirectCode: 301 }` 在服务端重定向时指定状态码（默认 302），老链接迁移就靠它；`{ replace: true }` 用 replace 而非 push，适合登录成功这类「不留后路」的跳转。注意在中间件中应 `return navigateTo(...)` 而不是裸调用，让 Nuxt 接管后续流程。
+
+路由中间件分三种：内联中间件直接把函数写进页面的 `definePageMeta({ middleware: [...] })` 数组，适合一次性逻辑；具名中间件放在 `app/middleware/` 下（如 `auth.ts`），页面用 `middleware: 'auth'` 按文件名引用，可跨页面复用；全局中间件以 `.global.ts` 结尾（如 `logger.global.ts`），无需声明，每次路由切换都会执行。中间件统一用 `defineNuxtRouteMiddleware((to, from) => ...)` 定义，返回值决定去向：什么都不返回（返回 `undefined`）表示放行；返回 `navigateTo(...)` 重定向；返回 `abortNavigation()` 中止导航（可携带错误对象展示错误页）。
+
+执行顺序上，全局中间件最先跑（多个全局中间件按文件名排序），随后是页面 `definePageMeta` 中的 `middleware` 数组，严格按数组声明顺序执行——因此把鉴权放在数组前面，后面的中间件才能拿到登录态。另外，插件等动态场景可用 `addRouteMiddleware('name', handler, { global: true })` 在运行时注册中间件，适合按功能开关动态注入守卫，属于进阶用法，知道有它即可。
+
+## 典型应用场景
+
+- **登录守卫**：`auth` 具名中间件检查会话 Cookie，未登录 `navigateTo('/login')`，挂在 `dashboard` 等受保护页面。
+- **全局埋点/日志**：`logger.global.ts` 记录每次路由切换的 `to.fullPath`，统一采集访问轨迹。
+- **老链接迁移**：中间件里对旧路径 `return navigateTo('/new-path', { redirectCode: 301 })`，SEO 权重平滑转移。
+- **导航栏高亮**：`NuxtLink` 的 active 类配合 CSS，无需手写路由比对逻辑。
+- **外链安全打开**：`NuxtLink` 指向外部地址时自动补全 `rel`，杜绝 `window.opener` 风险。
+
+## 完整代码示例
+
+```vue
+<!-- 文件: app/components/AppHeader.vue -->
+<script setup lang="ts">
+// 组件位于 app/components/，会被自动导入到任意页面或布局
+const route = useRoute()
+</script>
+
+<template>
+    <header>
+        <nav>
+            <!-- 站内链接：进入视口即预取，激活时自动带 router-link-active -->
+            <NuxtLink to="/">首页</NuxtLink>
+            <NuxtLink to="/notes">笔记</NuxtLink>
+            <NuxtLink to="/about">关于</NuxtLink>
+            <NuxtLink to="/dashboard">控制台</NuxtLink>
+            <!-- 站外链接：渲染为普通 a 标签并自动补 rel -->
+            <NuxtLink to="https://nuxt.com" target="_blank">Nuxt 官网</NuxtLink>
+        </nav>
+        <p>当前路径：{{ route.fullPath }}</p>
+    </header>
+</template>
+
+<style scoped>
+/* 当前页面对应的链接高亮 */
+.router-link-active {
+    color: #00dc82;
+    font-weight: 600;
+}
+</style>
+```
+
+> 运行方式：`npm run dev` 后访问 `http://localhost:3000/` ，点击导航切换页面，可观察激活高亮与「当前路径」的变化。
+
+```vue
+<!-- 文件: app/pages/login.vue -->
+<script setup lang="ts">
+definePageMeta({
+    layout: 'blank'    // 登录页不使用默认布局
+})
+
+const username = ref('')
+const password = ref('')
+const errorMsg = ref('')
+
+async function onSubmit() {
+    errorMsg.value = ''
+    try {
+        // 演示账号 demo / nuxt1234，由 server/api/auth/login 校验并种 session Cookie
+        await $fetch('/api/auth/login', {
+            method: 'POST',
+            body: { username: username.value, password: password.value }
+        })
+        // 登录成功：replace 跳转，避免用户点「后退」又回到登录页
+        await navigateTo('/dashboard', { replace: true })
+    } catch (e: any) {
+        errorMsg.value = e?.data?.statusMessage ?? '登录失败'
+    }
+}
+
+// 其他常见写法：
+// await navigateTo('https://nuxt.com', { external: true })   // 跳外部站点
+// return navigateTo('/notes', { redirectCode: 301 })         // 服务端 301 重定向（中间件中需 return）
+</script>
+
+<template>
+    <form @submit.prevent="onSubmit">
+        <input v-model="username" placeholder="用户名" autocomplete="username" />
+        <input v-model="password" type="password" placeholder="密码" autocomplete="current-password" />
+        <button type="submit">登录</button>
+        <p v-if="errorMsg">{{ errorMsg }}</p>
+    </form>
+</template>
+```
+
+> 运行方式：访问 `http://localhost:3000/login` ，用 `demo / nuxt1234` 登录后跳转 /dashboard，浏览器后退键不会回到登录页。
+
+```ts
+// 文件: app/middleware/auth.ts
+// 具名中间件：在 app/pages/dashboard.vue 中通过
+// definePageMeta({ middleware: 'auth' }) 挂载
+export default defineNuxtRouteMiddleware((to, from) => {
+    // server/api/auth/login 登录成功时会种下 session Cookie
+    const session = useCookie('session')
+
+    if (!session.value) {
+        // 未登录：重定向到登录页，并带上回跳地址
+        return navigateTo({
+            path: '/login',
+            query: { redirect: to.fullPath }
+        })
+    }
+    // 不返回任何值 = 放行
+})
+```
+
+> 运行方式：未登录状态直接访问 `http://localhost:3000/dashboard` ，会被重定向到 `/login?redirect=%2Fdashboard`。
+
+```ts
+// 文件: app/middleware/logger.global.ts
+// 全局中间件：文件名以 .global.ts 结尾，所有路由切换都会经过
+export default defineNuxtRouteMiddleware((to, from) => {
+    if (import.meta.client) {
+        // 仅客户端记录，避免 SSR 阶段重复输出
+        console.log(`[route] ${from.fullPath} -> ${to.fullPath}`)
+    }
+    // 不返回值即放行；全局中间件按文件名排序、先于具名中间件执行
+})
+```
+
+> 运行方式：`npm run dev` 后打开浏览器控制台，在站内任意导航即可看到 `[route]` 日志。
+
+## 最佳实践
+
+- **模板用 `NuxtLink`、脚本用 `navigateTo`**：两者都对 SSR 友好；不要在 setup 里直接 `useRouter().push`，避免丢失服务端导航语义。
+- **中间件里跳转必须 `return`**：`return navigateTo(...)` 或 `return abortNavigation(...)`；只调用不返回会导致导航继续执行，出现「重定向后原页面仍渲染」的怪象。
+- **鉴权放具名中间件、日志放全局中间件**：可复用逻辑做成 `middleware/auth.ts`，横切关注点用 `*.global.ts`，一次性逻辑才用内联中间件。
+- **留意执行顺序**：全局按文件名排序先跑，页面数组按声明序后跑；依赖登录态的中间件要排在 `auth` 之后。
+- **外链交给 `NuxtLink` 自动处理**：绝对地址自动渲染 `<a>` 并补 `rel`，不要手写 `<a href>` 外链又忘了安全属性。
+
+## 常见问题
+
+### Q：`navigateTo` 跳外部网站为什么不生效？
+A：外部地址必须加 `{ external: true }`，例如 `navigateTo('https://nuxt.com', { external: true })`；不加时会被当作站内路径处理。模板内则直接 `<NuxtLink to="https://...">` 即可。
+
+### Q：中间件里写了 `navigateTo('/login')` 但目标页面还是闪了一下？
+A：大概率是没有 `return`。中间件必须用返回值告知 Nuxt 导航结果，应写成 `return navigateTo('/login')`。
+
+### Q：`abortNavigation` 和 `navigateTo` 怎么选？
+A：要「换个地方去」用 `navigateTo`；要「这次导航作废」用 `abortNavigation()`，它可携带错误对象，如 `abortNavigation(createError({ statusCode: 403 }))`，直接展示错误页。
+
+### Q：如何在插件里按条件注册全局中间件？
+A：用 `addRouteMiddleware('my-guard', handler, { global: true })`，可在 `app/plugins/` 中根据运行时配置动态注册，无需落盘中间件文件；不加 `global` 则注册为具名中间件供页面引用。
+
+## 小结
+
+- `NuxtLink` 负责模板导航：站内自动预取与 active 类，站外自动渲染安全 `<a>`。
+- `navigateTo` 负责编程式导航：`external` 跳外链、`redirectCode` 定状态码、`replace` 不留历史。
+- 三种中间件：内联（页面数组）、具名（`app/middleware/*.ts`）、全局（`*.global.ts`）。
+- `defineNuxtRouteMiddleware` 返回值三态：不返回放行、`navigateTo` 重定向、`abortNavigation` 中止。
+- 执行顺序：全局按文件名 → 页面数组按声明序；动态注册用 `addRouteMiddleware`。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-2" target="_blank" rel="noopener">EP.02 路由与导航</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. `app/middleware/auth.ts` 与 `app/middleware/logger.global.ts` 的生效方式有何不同？</b></summary>
+
+`auth.ts` 是具名中间件，需要页面在 `definePageMeta({ middleware: 'auth' })` 中显式引用才生效；`logger.global.ts` 以 `.global.ts` 结尾，无需声明，对每次路由切换自动执行。
+
+</details>
+
+<details>
+<summary><b>2. 中间件里直接调用 `navigateTo('/login')`（不加 `return`）会有什么问题？</b></summary>
+
+导航不会被终止，重定向发起后原目标页面仍会继续渲染/取数，出现闪烁或重复请求。正确写法是 `return navigateTo('/login')`，把结果交给 Nuxt 处理。
+
+</details>
+
+<details>
+<summary><b>3. 旧地址 `/old-notes` 要永久迁移到 `/notes`，在中间件里怎么写对 SEO 最友好？</b></summary>
+
+`return navigateTo('/notes', { redirectCode: 301 })`。服务端渲染时会返回真实的 301 响应，搜索引擎据此把权重转移到新地址；默认的 302 只是临时重定向。
+
+</details>
+
+
+---
+
+<!-- 来源：05-components.md -->
+
+# 05. 组件开发与自动导入
+
+> 本章示例：`app/components/NoteCard.vue`、`app/components/CounterBox.vue`、`app/components/AppHeader.vue`、`app/pages/playground.vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/playground`
+
+## 概念解析
+
+Nuxt 4 约定 `app/components/` 目录下的所有 `.vue` 文件都会被自动注册：构建时 Nuxt 扫描该目录并生成虚拟模块 `#components` 与对应类型声明，因此在页面、布局或其他组件的模板里可以直接写 `<NoteCard />`，一行 `import` 都不用写。组件是按需注入的——只有模板真正用到的组件才会进入产物，没有全局注册带来的体积浪费。
+
+目录嵌套时，组件名会自动带上路径前缀并整体转为 PascalCase，例如 `app/components/note/Card.vue` 的组件名是 `<NoteCard />`。这一约定既避免了重名冲突，也让组件出处一目了然，这也是示例项目用 `components/NoteCard.vue`、`components/AppHeader.vue` 这类扁平命名的原因。
+
+对于首屏不需要的重型组件（图表、富文本编辑器），Nuxt 提供 `Lazy` 前缀：`<LazyCounterBox />` 会把组件拆成独立 chunk，首次真正渲染时才请求下载。反过来，依赖 `window`、canvas 等浏览器能力的纯客户端组件，可用内置的 `<ClientOnly>` 包裹——服务端只输出 `fallback` 占位，水合后再替换为真实组件。此外还有更激进的「组件岛」：以 `.server.vue` 结尾的服务端组件只在服务端渲染、输出静态 HTML，不下发任何客户端 JS，本章仅作了解。
+
+## 典型应用场景
+
+- **展示型组件**：NoteCard 接收 `note` 对象渲染标题、摘要与标签，`defineProps<T>()` 给出完整类型提示。
+- **受控交互组件**：CounterBox 通过 `v-model` + `defineEmits` 与父组件通信，状态留在使用方，复用性最好。
+- **壳组件与插槽**：AppHeader 用具名插槽把 logo 区、操作区开放给布局，用作用域插槽向父级透出内部数据。
+- **性能优化**：首屏外组件加 `Lazy` 前缀；浏览器专属组件用 `ClientOnly` 隔离，避免 SSR 报错。
+- **动态渲染**：根据路由或数据动态切换组件时使用 `<component :is>`，组件构造从 `#components` 显式导入。
+
+## 完整代码示例
+
+```vue
+<!-- 文件: app/components/NoteCard.vue -->
+<script setup lang="ts">
+    import type { Note } from '#shared/types/note'
+
+    // withDefaults 为可选 props 提供默认值，TS 项目推荐此写法
+    const props = withDefaults(
+        defineProps<{
+            note: Note
+            compact?: boolean
+        }>(),
+        { compact: false }
+    )
+</script>
+
+<template>
+    <article class="note-card" :class="{ compact: props.compact }">
+        <h3>
+            <NuxtLink :to="`/notes/${props.note.id}`">{{ props.note.title }}</NuxtLink>
+        </h3>
+        <p v-if="!props.compact">{{ props.note.excerpt }}</p>
+        <ul class="tags">
+            <li v-for="tag in props.note.tags" :key="tag">{{ tag }}</li>
+        </ul>
+        <!-- formatDate 来自 app/utils/format.ts，同样自动导入 -->
+        <time>{{ formatDate(props.note.createdAt) }}</time>
+    </article>
+</template>
+```
+> 运行方式：`cd app && npm install && npm run dev`，访问 `http://localhost:3000/` 查看 NoteCard 列表渲染效果。
+
+```vue
+<!-- 文件: app/components/CounterBox.vue -->
+<script setup lang="ts">
+    const props = withDefaults(defineProps<{ modelValue: number; step?: number }>(), { step: 1 })
+
+    // 用类型化签名声明事件：父组件 v-model / @changed 均有类型检查
+    const emit = defineEmits<{
+        'update:modelValue': [value: number]
+        changed: [value: number]
+    }>()
+
+    function bump(delta: number) {
+        const next = props.modelValue + delta * props.step
+        emit('update:modelValue', next)
+        emit('changed', next)
+    }
+</script>
+
+<template>
+    <div class="counter-box">
+        <button type="button" @click="bump(-1)">-</button>
+        <strong>{{ props.modelValue }}</strong>
+        <button type="button" @click="bump(1)">+</button>
+    </div>
+</template>
+```
+> 运行方式：访问 `http://localhost:3000/playground` ，操作计数器并在控制台观察 `changed` 事件输出。
+
+```vue
+<!-- 文件: app/components/AppHeader.vue -->
+<script setup lang="ts">
+    const title = 'Nuxt LearnHub'
+</script>
+
+<template>
+    <header class="app-header">
+        <!-- 作用域插槽：把内部 title 透出给使用方 -->
+        <slot name="logo" :title="title">
+            <NuxtLink to="/" class="logo">{{ title }}</NuxtLink>
+        </slot>
+        <nav class="main-nav">
+            <!-- 默认插槽：放主导航链接 -->
+            <slot />
+        </nav>
+        <div class="actions">
+            <!-- 具名插槽：右侧操作区 -->
+            <slot name="actions" />
+        </div>
+    </header>
+</template>
+```
+> 运行方式：该组件被 `app/layouts/default.vue` 使用，访问任意页面即可看到页头效果。
+
+```vue
+<!-- 文件: app/pages/playground.vue -->
+<script setup lang="ts">
+    // 动态组件必须拿到组件构造：从 #components 显式导入
+    import { AppFooter, NoteCard } from '#components'
+    import type { Note } from '#shared/types/note'
+
+    const route = useRoute()
+    const count = ref(0)
+
+    const demoNote: Note = {
+        id: 1,
+        title: '组件系统速览',
+        excerpt: '自动导入、props/emits/slots 与懒加载',
+        content: '',
+        tags: ['nuxt4', 'component'],
+        createdAt: '2025-07-15T00:00:00.000Z'
+    }
+
+    // 根据 ?view= 动态切换渲染的组件
+    const current = computed(() => (route.query.view === 'footer' ? AppFooter : NoteCard))
+</script>
+
+<template>
+    <main>
+        <!-- 自动导入：模板里直接使用，无需 import -->
+        <CounterBox v-model="count" :step="2" @changed="(v: number) => console.log('changed:', v)" />
+
+        <!-- Lazy 前缀：首次渲染时才下载组件 chunk -->
+        <LazyNoteCard v-if="count >= 3" :note="demoNote" compact />
+
+        <!-- 纯客户端组件：SSR 阶段只输出 fallback -->
+        <ClientOnly>
+            <p>本机时间：{{ new Date().toLocaleString() }}</p>
+            <template #fallback>
+                <p>时间加载中…</p>
+            </template>
+        </ClientOnly>
+
+        <!-- 动态组件：:is 接收组件构造（未声明的 props 会作为 attrs 透传） -->
+        <component :is="current" :note="demoNote" />
+    </main>
+</template>
+```
+> 运行方式：访问 `http://localhost:3000/playground` 与 `http://localhost:3000/playground?view=footer` ，对比动态组件切换效果。
+
+## 最佳实践
+
+1. **组件一律放进 `app/components/` 并依赖自动导入**：手写 import 不仅冗余，还会绕过 Nuxt 的按需注入与类型生成。
+2. **props 用 `defineProps<T>()` + `withDefaults` 的类型写法**：比运行时 `props: { ... }` 声明获得更好的类型推断与重构支持。
+3. **`defineEmits` 必须显式声明**：事件名与载荷类型写清楚，父组件 `@xxx` 才有类型检查，组件接口也自成文档。
+4. **首屏外的重组件加 `Lazy` 前缀**：编辑器、图表等拆成异步 chunk，显著降低首屏 JS 体积。
+5. **浏览器专属组件用 `ClientOnly` 隔离并提供 fallback**：避免 SSR 期间访问 `window` 报错，同时保证水合一致。
+6. **动态组件从 `#components` 导入构造再传给 `:is`**：自动导入的组件没有全局字符串注册表，直接传字符串名解析不到。
+
+## 常见问题
+
+### Q：模板里写了组件却没有任何渲染，也不报错？
+A：先确认文件在 `app/components/` 下且以 `.vue` 结尾；再检查模板中的标签名是否等于「目录前缀 + 文件名」的 PascalCase 结果（嵌套目录最容易漏掉前缀）。改过目录结构后重启 dev server，让组件扫描结果重新生成。
+
+### Q：嵌套目录导致组件名太长怎么办？
+A：路径前缀是刻意设计，能防止同名组件冲突，建议保留；若确实想去掉，可在 `nuxt.config.ts` 的 `components` 选项中对特定目录配置 `pathPrefix: false`，但需自行承担重名风险。
+
+### Q：`LazyXxx` 与 `Xxx` 的 props、事件有区别吗？
+A：没有。`Lazy` 前缀只改变加载时机（首次渲染才下载 chunk），组件的 props、emits、插槽用法完全一致，二者可随时互换。
+
+### Q：`<component :is>` 传字符串组件名为什么不生效？
+A：自动导入的组件并未全局注册，运行时没有「字符串 → 组件」的映射表。请从 `#components` 导入组件构造，把构造（或包装它的 computed）赋给 `:is`。
+
+## 小结
+
+- `app/components/` 自动导入，嵌套目录会生成 PascalCase 路径前缀组件名。
+- `defineProps` / `defineEmits` / 插槽（具名 + 作用域）是组件通信三件套，全部支持类型化。
+- `Lazy` 前缀解决「晚点加载」，`ClientOnly` 解决「只在客户端渲染」，二者方向相反、不要混淆。
+- 动态组件配 `#components` 显式导入；`.server.vue` 组件岛只输出 HTML、不下发客户端 JS。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-3" target="_blank" rel="noopener">EP.03 组件与布局</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. `app/components/note/Card.vue` 在模板里对应的组件名是什么？</b></summary>
+
+`<NoteCard />`。目录段与文件名拼接后整体转 PascalCase：note → Note、Card → Card。
+
+</details>
+
+<details>
+<summary><b>2. 一个只有点击「展开高级筛选」才会用到的重组件，如何避免拖慢首屏？</b></summary>
+
+使用 `Lazy` 前缀（如 `<LazyFilterPanel />`）并配合 `v-if` 控制渲染时机：组件 chunk 在首次渲染时才下载，不影响首屏体积与加载。
+
+</details>
+
+<details>
+<summary><b>3. 在 `&lt;component :is&gt;` 中动态渲染自动导入的组件，正确做法是什么？</b></summary>
+
+从 `#components` 显式导入组件构造（如 `import { NoteCard } from '#components'`），将构造赋给 `:is`；直接传字符串组件名无法被解析。
+
+</details>
+
+
+---
+
+<!-- 来源：06-layouts.md -->
+
+# 06. 布局系统与页面过渡
+
+> 本章示例：`app/layouts/default.vue`、`app/layouts/blank.vue`、`app/pages/login.vue`、`app/app.vue`
+> 运行方式：`cd app && npm install && npm run dev`，访问 `http://localhost:3000/login` 体验布局切换与页面过渡
+
+## 概念解析
+
+布局是包裹在页面外面的「壳」。Nuxt 4 约定 `app/layouts/` 目录下的 `.vue` 文件即布局：`default.vue` 是默认布局，所有未显式指定布局的页面都会被它包裹；布局内部必须有一个 `<slot />` 作为页面出口，否则页面内容不会渲染。多布局场景只需新增文件（如 `blank.vue`），页面通过 `definePageMeta({ layout: 'blank' })` 声明使用哪个布局。
+
+`app.vue` 中的标准组合是 `<NuxtLayout>` 套 `<NuxtPage>`：`NuxtLayout` 根据当前页面的 meta 渲染对应布局，`NuxtPage` 渲染页面本体。若需要在运行期动态切换布局（例如按用户角色在 admin / default 之间切换），可以给 `NuxtLayout` 传 `:name` 属性，它的优先级高于页面 meta 中的声明。
+
+页面过渡基于 Vue 的 `<Transition>`，Nuxt 在页面切换时自动为 `NuxtPage` 套上过场。开启方式有两种：全局在 `nuxt.config.ts` 写 `app: { pageTransition: { name: 'page', mode: 'out-in' } }`，或单页在 `definePageMeta` 里写 `pageTransition`；然后按 `name` 提供 `.page-enter-from` 等 CSS 类即可。`mode: 'out-in'` 表示旧页面先离场、新页面再进场，能避免两个页面同屏造成的布局抖动。布局切换的过渡同理，配置项是 `layoutTransition`（默认 name 为 `layout`）。
+
+过渡是否触发，取决于 `NuxtPage` 的 `page-key`：key 变化 → 旧组件卸载、新组件挂载 → 过渡发生。默认 key 与路由记录相关，因此 `/notes/1` 跳到 `/notes/2`（同一条路由记录、仅参数变化）默认**不**触发过渡；把 `:page-key` 绑定为 `(route) => route.fullPath` 即可让参数、查询变化也触发重建与过渡。与之相对的优化是 `keepalive`：让符合条件的页面组件切走后保留实例，返回时原样恢复（长表单、多标签页常用）。
+
+## 典型应用场景
+
+- **统一站点外壳**：`default.vue` 组合 AppHeader / 页面出口 / AppFooter，全站共享导航与页脚。
+- **沉浸式页面**：登录页、营销落地页使用 `blank.vue`，不被站点外壳干扰。
+- **动态布局**：依据用户角色或实验分组，用 `<NuxtLayout :name="...">` 在运行期切换布局。
+- **转场动效**：列表 → 详情、步骤流页面用 `pageTransition` 提升质感与方向感。
+- **状态保活**：多标签页或长表单页用 `keepalive` 缓存，返回时不丢失输入与滚动位置。
+
+## 完整代码示例
+
+```vue
+<!-- 文件: app/layouts/default.vue -->
+<template>
+    <div class="layout-default">
+        <AppHeader>
+            <!-- 默认插槽：主导航链接 -->
+            <NuxtLink to="/notes">笔记</NuxtLink>
+            <NuxtLink to="/playground">练习场</NuxtLink>
+            <!-- 具名插槽：页头右侧操作区 -->
+            <template #actions>
+                <NuxtLink to="/login">登录</NuxtLink>
+            </template>
+        </AppHeader>
+        <main class="container">
+            <!-- 页面出口：必须有，否则页面内容不渲染 -->
+            <slot />
+        </main>
+        <AppFooter />
+    </div>
+</template>
+```
+> 运行方式：`cd app && npm install && npm run dev`，访问 `http://localhost:3000/` 即可看到「页头 + 内容 + 页脚」的默认布局。
+
+```vue
+<!-- 文件: app/layouts/blank.vue -->
+<template>
+    <!-- 空白布局：只保留页面出口，用于登录页等沉浸式场景 -->
+    <slot />
+</template>
+```
+> 运行方式：访问 `http://localhost:3000/login` ，该页声明了使用 blank 布局，看不到页头页脚。
+
+```vue
+<!-- 文件: app/pages/login.vue -->
+<script setup lang="ts">
+    // 声明本页使用 blank 布局，并单独配置页面过渡
+    definePageMeta({
+        layout: 'blank',
+        pageTransition: { name: 'slide', mode: 'out-in' }
+    })
+</script>
+
+<template>
+    <main class="login-page">
+        <h1>登录 Nuxt LearnHub</h1>
+        <!-- 表单与 $fetch 提交逻辑见第 08 章 -->
+    </main>
+</template>
+```
+> 运行方式：从首页点击「登录」进入 `http://localhost:3000/login` ，可观察到 slide 过渡（CSS 类定义在 app.vue 中）。
+
+```vue
+<!-- 文件: app/app.vue -->
+<template>
+    <NuxtLayout>
+        <!-- page-key 按完整路径生成：参数/query 变化也会重建页面并触发过渡 -->
+        <!-- keepalive：最多缓存 5 个页面实例，返回时保留滚动位置与输入 -->
+        <NuxtPage :page-key="(route) => route.fullPath" :keepalive="{ max: 5 }" />
+    </NuxtLayout>
+</template>
+
+<style>
+    /* 全局页面过渡：对应 pageTransition.name = 'page'（在 nuxt.config 的 app.pageTransition 中开启） */
+    .page-enter-active,
+    .page-leave-active {
+        transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    .page-enter-from,
+    .page-leave-to {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    /* 登录页自定义过渡：对应 definePageMeta 中的 name = 'slide' */
+    .slide-enter-active,
+    .slide-leave-active {
+        transition: transform 0.25s ease, opacity 0.25s ease;
+    }
+    .slide-enter-from {
+        transform: translateX(24px);
+        opacity: 0;
+    }
+    .slide-leave-to {
+        transform: translateX(-24px);
+        opacity: 0;
+    }
+
+    /* 布局切换过渡：对应 layoutTransition.name = 'layout' */
+    .layout-enter-active,
+    .layout-leave-active {
+        transition: opacity 0.15s ease;
+    }
+    .layout-enter-from,
+    .layout-leave-to {
+        opacity: 0;
+    }
+</style>
+```
+> 运行方式：在 `http://localhost:3000/` 、/notes、/login 之间来回导航，观察 page / slide / layout 三组过渡效果。
+
+## 最佳实践
+
+1. **布局里永远记得写 `<slot />`**：这是「页面一片空白」最常见的根因，每个布局文件都先检查出口。
+2. **全局过渡放 `nuxt.config.ts`，个性过渡放 `definePageMeta`**：职责分层，避免在每个页面重复配置同样的过渡。
+3. **`mode: 'out-in'` 作为默认选择**：先出后进，避免新旧页面同屏互相撑破布局。
+4. **过渡时长控制在 150~300ms**：再长就会显得拖沓，并放大低端设备上的卡顿感。
+5. **需要参数变化也触发过渡时，显式设置 `:page-key`**：否则 `/notes/1 → /notes/2` 既没有过渡，页面数据也不会重建。
+6. **`keepalive` 只给真正需要的页面**：缓存实例占内存，用 `include` / `max` 限制缓存范围。
+
+## 常见问题
+
+### Q：页面完全不渲染，布局本身也不报错？
+A：九成是布局里漏了 `<slot />`。布局是页面的容器，没有出口，页面内容就被静默丢弃了。
+
+### Q：配置了 `pageTransition` 却看不到动效？
+A：按顺序排查：① 全局过渡需配置 `nuxt.config.ts` 的 `app.pageTransition`，单页过渡需 `definePageMeta`；② CSS 类名前缀必须与 `name` 完全一致；③ 路由变化是否真的改变了 `page-key`（仅参数变化默认不触发）。
+
+### Q：从 `/notes/1` 跳到 `/notes/2`，过渡和数据都没更新？
+A：同一条路由记录仅参数变化时，Nuxt 默认复用页面组件实例。给 `NuxtPage` 设置 `:page-key="(route) => route.fullPath"`，即可强制按路径重建并触发过渡。
+
+### Q：如何根据登录状态在运行期切换布局？
+A：使用 `<NuxtLayout :name="isAdmin ? 'admin' : 'default'">`，`name` 的优先级高于页面 `definePageMeta` 中的声明；切换时配合 `layoutTransition` 还能带上过渡动画。
+
+## 小结
+
+- `app/layouts/` 即布局，`default.vue` 为默认布局；`<slot />` 是页面出口，必不可少。
+- 页面用 `definePageMeta({ layout })` 选择布局；`<NuxtLayout :name>` 可在运行期动态覆盖。
+- `pageTransition` / `layoutTransition` + 同名 CSS 过渡类实现转场，`mode: 'out-in'` 最稳妥。
+- `page-key` 决定页面重建与过渡触发时机；`keepalive` 缓存页面实例做状态保活。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-3" target="_blank" rel="noopener">EP.03 组件与布局</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 为什么 `/notes/1 → /notes/2` 默认不触发页面过渡？如何让它触发？</b></summary>
+
+`page-key` 默认与路由记录绑定，仅参数变化时 key 不变，组件被复用。设置 `:page-key="(route) => route.fullPath"` 即可按完整路径重建页面并触发过渡。
+
+</details>
+
+<details>
+<summary><b>2. `mode: 'out-in'` 的含义与好处是什么？</b></summary>
+
+旧页面先完成离场过渡、新页面再开始进场。好处是避免两个页面同屏并存造成的布局抖动、闪烁与滚动位置错乱。
+
+</details>
+
+<details>
+<summary><b>3. 想让登录页不被站点的页头页脚包裹，需要哪两步？</b></summary>
+
+① 新建 `app/layouts/blank.vue`，内部只保留 `<slot />`；② 在登录页中声明 `definePageMeta({ layout: 'blank' })`。
+
+</details>
+
+
+---
+
+<!-- 来源：07-usefetch.md -->
+
+# 07. useFetch 与 useAsyncData
+
+> 本章示例：`app/pages/index.vue`、`app/pages/notes/index.vue`、`app/composables/useNotes.ts`、`app/pages/playground.vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/` 与 `http://localhost:3000/notes?q=nuxt`
+
+## 概念解析
+
+`useFetch` 是 Nuxt 数据获取的门面。SSR 场景下它在**服务端**执行请求，结果随 HTML 一起序列化进 payload（`window.__NUXT__`），客户端水合时命中 payload、**不再重复发请求**——这就是「服务端取数 → payload 序列化 → 客户端水合复用」的完整链路。相比在 `onMounted` 里发请求，它消灭了二次请求与加载闪烁，还让首屏 HTML 自带数据、对 SEO 友好。
+
+从关系上看，`useFetch` 是 `useAsyncData` + `$fetch` 的语法糖：`useFetch('/api/notes')` 约等于 `useAsyncData(key, () => $fetch('/api/notes'))`。当数据源不是 HTTP（本地计算、存储读取、多个请求组合）时，就该直接使用 `useAsyncData`、自己写 handler。两者返回值一致：`{ data, status, error, refresh, execute, clear }`，其中 `status` 取 `'idle' | 'pending' | 'success' | 'error'`，模板里用它驱动加载态；`refresh` / `execute` 重新执行，`clear` 清空数据回到初始态。
+
+两个 Nuxt 4 的关键行为务必记住：其一，**同 key 自动共享**——`useFetch` 会根据 URL 与选项自动推导 key，`useAsyncData` 使用显式 key；任何地方用同一个 key 调用，拿到的都是同一份 `data`，不会重复请求（配合 `useNuxtData(key)` 还能只读这份共享缓存）。其二，**`data` 默认是 `shallowRef`**：嵌套属性的变更不会触发视图更新，需要深度响应时传 `deep: true`，但更推荐整体替换对象。
+
+常用选项一览：`server`（false 则仅客户端执行）、`lazy`（不阻塞路由导航，对应别名 `useLazyFetch`）、`immediate`（false 时靠 `execute()` 手动触发）、`watch`（监听响应式源自动重取，传 `false` 关闭自动监听）、`transform` / `pick`（裁剪返回数据，减小 payload 体积）、`key`（自定义缓存 key）、`getCachedData`（自定义缓存命中逻辑）、`dedupe`（并发的相同请求 `'cancel'` 或 `'defer'`）、`default`（data 为空时的占位初始值）。
+
+## 典型应用场景
+
+- **SSR 列表页**：首页 `useFetch('/api/notes')`，服务端渲染即带数据，水合不重复请求。
+- **响应式搜索**：`query` 传 computed，URL 上 `?q=` 变化即自动重新请求。
+- **跨页面共享数据**：把请求封装进 composable（`useNotes`），列表页与详情页按 key 共享缓存。
+- **懒加载次要数据**：`useLazyFetch` 不阻塞路由切换，适合「最新动态」类非关键模块。
+- **非 HTTP 数据源**：`useAsyncData` + `Promise.all` 组合多个请求，或包裹任意异步逻辑。
+
+## 完整代码示例
+
+```vue
+<!-- 文件: app/pages/index.vue -->
+<script setup lang="ts">
+    import type { Note } from '#shared/types/note'
+
+    // SSR：服务端先取数并序列化进 payload，客户端水合时直接复用
+    const { data: notes, status, error, refresh } = await useFetch<Note[]>('/api/notes')
+</script>
+
+<template>
+    <main>
+        <h1>Nuxt LearnHub 学习笔记</h1>
+        <p v-if="status === 'pending'">加载中…</p>
+        <p v-else-if="error">加载失败：{{ error.statusMessage ?? error.message }}</p>
+        <div v-else class="note-grid">
+            <NoteCard v-for="note in notes ?? []" :key="note.id" :note="note" />
+        </div>
+        <button type="button" @click="refresh()">重新加载</button>
+    </main>
+</template>
+```
+> 运行方式：`cd app && npm install && npm run dev`，访问 `http://localhost:3000/` ；在 DevTools Network 面板可观察到水合阶段没有重复的 `/api/notes` 请求。
+
+```vue
+<!-- 文件: app/pages/notes/index.vue -->
+<script setup lang="ts">
+    import type { Note } from '#shared/types/note'
+
+    const route = useRoute()
+    // 把 URL 上的 ?q= 作为搜索词；q 是 computed，变化即驱动重新请求
+    const q = computed(() => (route.query.q as string) || '')
+
+    const { data: notes, status } = await useFetch<Note[]>('/api/notes', {
+        query: { q }  // query 选项接受 ref/computed，无需手写 watch
+    })
+
+    function onInput(e: Event) {
+        // 只改 URL：query 变化 → computed 更新 → useFetch 自动重取
+        navigateTo({ query: { q: (e.target as HTMLInputElement).value } })
+    }
+</script>
+
+<template>
+    <main>
+        <input :value="q" placeholder="搜索笔记…" @input="onInput" />
+        <p v-if="status === 'pending'">搜索中…</p>
+        <NoteCard v-for="n in notes ?? []" :key="n.id" :note="n" />
+    </main>
+</template>
+```
+> 运行方式：访问 `http://localhost:3000/notes?q=nuxt` ，在输入框中输入关键字，URL 与列表会联动更新。
+
+```ts
+// 文件: app/composables/useNotes.ts
+import type { Note } from '#shared/types/note'
+
+// 列表：固定 key，跨页面/组件共享同一份数据
+export function useNotes() {
+    return useFetch<Note[]>('/api/notes', {
+        key: 'notes-list',
+        // 命中 payload/静态缓存时不再发请求（例如从详情页返回列表页）
+        getCachedData: (key, nuxtApp) => nuxtApp.payload.data[key] ?? nuxtApp.static.data[key]
+    })
+}
+
+// 详情：URL 不同则自动推导的 key 不同，一般无需手动指定
+export function useNote(id: number) {
+    return useFetch<Note>(`/api/notes/${id}`)
+}
+```
+> 运行方式：该 composable 被首页与 `app/pages/notes/[id].vue` 复用，在 `http://localhost:3000/` 与 `http://localhost:3000/notes/1` 间切换可观察缓存共享。
+
+```vue
+<!-- 文件: app/pages/playground.vue -->
+<script setup lang="ts">
+    import type { Note } from '#shared/types/note'
+
+    // useLazyFetch：lazy: true 的别名，不阻塞路由切换，因此不加 await
+    const { data: latest, status: lazyStatus } = useLazyFetch<Note[]>('/api/notes', {
+        query: { limit: 3 }
+    })
+
+    // useAsyncData：handler 是任意异步函数，这里用 Promise.all 组合两个请求
+    const { data: dashboard, status: dashStatus } = await useAsyncData('playground-dashboard', async () => {
+        const [notes, first] = await Promise.all([
+            $fetch<Note[]>('/api/notes'),
+            $fetch<Note>('/api/notes/1')
+        ])
+        return { total: notes.length, firstTitle: first.title }
+    })
+</script>
+
+<template>
+    <main>
+        <section>
+            <h2>最新笔记（懒加载）</h2>
+            <p v-if="lazyStatus === 'pending'">加载中…</p>
+            <NoteCard v-for="n in latest ?? []" :key="n.id" :note="n" compact />
+        </section>
+        <section>
+            <h2>组合请求</h2>
+            <p v-if="dashStatus === 'success'">
+                共 {{ dashboard?.total }} 篇，首篇：{{ dashboard?.firstTitle }}
+            </p>
+        </section>
+    </main>
+</template>
+```
+> 运行方式：访问 `http://localhost:3000/playground` ，对比懒加载区块与组合请求区块的渲染时序。
+
+## 最佳实践
+
+1. **请求统一封装进 composable，key 规则集中管理**：避免散落各处的 `useFetch` 各自为政，共享缓存也依赖 key 对齐。
+2. **大列表用 `pick` / `transform` 裁剪字段**：payload 会随 HTML 下发，裁剪直接减少传输体积与水合成本。
+3. **非关键数据用 `lazy` 系列**：不阻塞导航与首屏渲染，配合 `status === 'pending'` 渲染骨架屏。
+4. **优先「响应式 query」而非手写 `watch`**：`query` / `params` 传 ref/computed 语义更清晰，Nuxt 会自动去重并取消过期请求。
+5. **用 `getCachedData` 复用 payload**：返回上一页等场景直接命中缓存，体验和流量双赢。
+6. **用 `default: () => []` 提供占位初值**：模板里少写一层 `v-if="data"`，代码更平直。
+
+## 常见问题
+
+### Q：为什么 `useFetch` 在客户端水合时没有再发一次请求？
+A：服务端取到的数据已序列化进 payload 随 HTML 下发，客户端水合时用同一 key 命中 payload 直接复用。这正是它区别于「mounted 里 fetch」的核心价值。
+
+### Q：两个组件同时调用同一个 `useFetch`，会请求两次吗？
+A：不会。key 相同的调用共享同一份异步状态与数据（Nuxt 4 行为）；使用 `useAsyncData` 时记得显式传相同的 `key`。
+
+### Q：修改 `data.value` 的嵌套属性，视图为什么不更新？
+A：Nuxt 4 中 `data` 默认是 `shallowRef`，只追踪顶层引用的替换。要么整体赋一个新对象，要么在选项里传 `deep: true`。
+
+### Q：`watch` 选项和响应式 `query` 有什么区别？
+A：`query` / `params` 传 ref 时是「参数驱动」——参数变就重取；`watch` 用于监听与请求参数无关的响应式源（如全局筛选状态）；传 `watch: false` 则可完全关闭自动重取，只手动 `execute()`。
+
+## 小结
+
+- `useFetch` = `useAsyncData` + `$fetch`；SSR 取数经 payload 水合，客户端不重复请求。
+- 返回 `{ data, status, error, refresh, execute, clear }`，用 `status` 驱动加载态与错误态。
+- Nuxt 4：同 key 自动共享数据、`data` 默认 `shallowRef`（可用 `deep: true` 还原）。
+- 核心选项 `server / lazy / immediate / watch / transform / pick / key / getCachedData / dedupe / default`；响应式 `query` 传 ref 即自动重取。
+- 非 HTTP 或组合请求场景手写 `useAsyncData`；`useLazyFetch` / `useLazyAsyncData` 是 `lazy: true` 的别名。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-4" target="_blank" rel="noopener">EP.04 数据获取</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. `useFetch('/api/notes')` 与 `useAsyncData('notes', () =&gt; $fetch('/api/notes'))` 是什么关系？</b></summary>
+
+前者是后者的语法糖：`useFetch` 自动根据 URL 与选项推导 key，并内置 `$fetch` 作为 handler；需要自定义 key、非 HTTP 数据源或组合请求时用 `useAsyncData`。
+
+</details>
+
+<details>
+<summary><b>2. 希望某数据仅客户端加载、且不阻塞从其他页面跳转过来，应如何配置？</b></summary>
+
+传 `{ server: false, lazy: true }`（或 `useLazyFetch` 加 `server: false`）：服务端不执行该请求，导航不被阻塞，数据在客户端异步补齐。
+
+</details>
+
+<details>
+<summary><b>3. 为什么建议对返回大对象的 `useFetch` 使用 `pick` 或 `transform`？</b></summary>
+
+返回数据会序列化进 payload 随 HTML 下发并在客户端水合。裁剪掉模板用不到的字段，可同时减小网络传输体积与水合时的反序列化开销。
+
+</details>
+
+
+---
+
+<!-- 来源：08-fetch-advanced.md -->
+
+# 08. $fetch 与请求进阶
+
+> 本章示例：`app/plugins/02.api.ts`、`app/pages/login.vue`、`app/server/api/notes/[id].get.ts`、`app/error.vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/login` 与 `http://localhost:3000/notes/999`
+
+## 概念解析
+
+`$fetch`（基于 ofetch）是 Nuxt 里的通用请求工具：它**不做**水合、缓存与 key 共享，就是一次干净的异步请求。它的适用场景与 `useFetch` 正好互补——事件处理（表单提交、按钮点击）、纯客户端逻辑、`POST / PUT / DELETE` 等「与首屏渲染无关」的请求都用 `$fetch`。判断标准很简单：**渲染需要的数据用 `useFetch`，用户动作产生的请求用 `$fetch`**。
+
+项目里通常不会到处裸用 `$fetch`，而是用 `$fetch.create` 创建一个带 `baseURL` 与拦截器的实例，再通过 Nuxt 插件 `provide` 出去统一使用。ofetch 提供四个拦截钩子：`onRequest`（请求发出前，注入 token 等）、`onRequestError`（请求未能发出的失败，如断网）、`onResponse`（成功响应）、`onResponseError`（非 2xx 响应）——统一鉴权、统一 401 跳转、统一日志都在这一层收口。
+
+数据一致性上，动作完成后需要让 `useFetch` / `useAsyncData` 的缓存同步：`refreshNuxtData(keys)` 会让指定 key（不传则全部）的 handler **重新执行**；`clearNuxtData(keys)` 则把 `data` 重置为空、`status` 置为 `idle`，适合登出这类「清空即可」的场景。
+
+错误处理建议按三层理解：① 服务端用 `createError({ statusCode, statusMessage })` 抛出标准错误响应；② 客户端 `useFetch` 返回的 `error` 是 `NuxtError`，`error.value.data` 里能读到服务端响应体（`$fetch` 则是捕获异常的 `err.data`）；③ 页面级兜底——`error.vue` 捕获全局未处理错误，配合 `clearError({ redirect: '/' })` 恢复现场；组件级兜底用 `<NuxtErrorBoundary>` 的 `#error` 插槽做局部降级，不让一个模块拖垮整页。
+
+最后一个 SSR 专属坑：服务端渲染期间是 **Nuxt 服务器**（而非浏览器）去请求内部 API，浏览器的 cookie 不会自动带上。两种解法：手动 `headers: useRequestHeaders(['cookie'])` 转发；或更省心地使用 `useRequestFetch()`——它返回一个已自动转发 cookie 等请求头的 `$fetch`（仅在 setup 阶段的 SSR 期间有效）。
+
+## 典型应用场景
+
+- **登录 / 表单提交**：用 `$fetch`（或封装后的 `$api`）发起 POST，成功后 `refreshNuxtData` 刷新相关数据。
+- **统一 API 层**：`plugins/02.api.ts` 中 `$fetch.create` + 拦截器，全站复用同一个 `$api`。
+- **鉴权接口 SSR 预取**：`useRequestFetch` 转发 cookie，让「当前用户」在服务端就能取到。
+- **优雅降级**：详情页 404 时用 `error.value.data` 展示服务端给出的原因；局部模块失败用 `NuxtErrorBoundary` 隔离。
+- **全局兜底**：未捕获错误落到 `error.vue`，一键 `clearError` 回到首页。
+
+## 完整代码示例
+
+```ts
+// 文件: app/plugins/02.api.ts
+export default defineNuxtPlugin(() => {
+    // 统一封装的 API 实例：baseURL + 拦截器
+    const api = $fetch.create({
+        baseURL: '/api',
+        onRequest({ options }) {
+            // 请求发出前：注入凭证（示例：从 cookie 读取登录 token）
+            const token = useCookie('token')
+            if (token.value) {
+                options.headers.set('Authorization', `Bearer ${token.value}`)
+            }
+        },
+        onRequestError({ error }) {
+            // 请求尚未发出就失败（断网、跨域等）
+            console.error('[api] 请求失败：', error.message)
+        },
+        onResponse() {
+            // 成功响应钩子：需要统一解包/埋点时在这里处理
+        },
+        onResponseError({ response }) {
+            // 401 统一跳登录；其余错误交给调用方处理
+            if (response.status === 401) {
+                return navigateTo('/login')
+            }
+            console.error(`[api] ${response.status} ${response.statusText}`)
+        }
+    })
+
+    return {
+        provide: {
+            api  // 之后通过 useNuxtApp().$api 或模板中的 $api 使用
+        }
+    }
+})
+```
+> 运行方式：`cd app && npm install && npm run dev`，插件自动注册；在任意页面 `useNuxtApp().$api('/notes')` 即可走统一拦截器。
+
+```vue
+<!-- 文件: app/pages/login.vue -->
+<script setup lang="ts">
+    definePageMeta({ layout: 'blank' })
+
+    const { $api } = useNuxtApp()
+    const email = ref('')
+    const password = ref('')
+    const errorMsg = ref('')
+
+    async function onSubmit() {
+        errorMsg.value = ''
+        try {
+            // 事件处理场景用 $api/$fetch：不涉及 SSR 水合
+            await $api('/auth/login', {
+                method: 'POST',
+                body: { email: email.value, password: password.value }
+            })
+            // 登录成功：让第 07 章约定的缓存 key 重新取数
+            await refreshNuxtData('notes-list')
+            await navigateTo('/')
+        } catch (err) {
+            // $fetch 抛出的异常上挂着服务端响应体 err.data
+            const e = err as { data?: { statusMessage?: string } }
+            errorMsg.value = e.data?.statusMessage ?? '登录失败，请稍后重试'
+        }
+    }
+</script>
+
+<template>
+    <main class="login-page">
+        <form @submit.prevent="onSubmit">
+            <input v-model="email" type="email" placeholder="邮箱" required />
+            <input v-model="password" type="password" placeholder="密码" required />
+            <button type="submit">登录</button>
+            <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
+        </form>
+    </main>
+</template>
+```
+> 运行方式：访问 `http://localhost:3000/login` ，用错误密码提交可看到 `err.data.statusMessage` 的提示效果。
+
+```ts
+// 文件: app/server/api/notes/[id].get.ts
+import type { Note } from '#shared/types/note'
+
+// 演示用内存数据（真实项目替换为数据库查询）
+const notes: Note[] = [
+    {
+        id: 1,
+        title: 'useFetch 快速上手',
+        excerpt: 'SSR 数据获取三件套',
+        content: '……',
+        tags: ['nuxt4', 'data'],
+        createdAt: '2025-07-15T00:00:00.000Z'
+    }
+]
+
+export default defineEventHandler((event) => {
+    const id = Number(getRouterParam(event, 'id'))
+    const note = notes.find((n) => n.id === id)
+    if (!note) {
+        // createError：抛出标准错误响应，客户端可在 error.value.data 读到完整信息
+        throw createError({ statusCode: 404, statusMessage: '笔记不存在' })
+    }
+    return note
+})
+```
+> 运行方式：直接访问 `http://localhost:3000/api/notes/999` 可见 404 JSON；访问 `http://localhost:3000/notes/999` 可看到详情页的错误展示。
+
+```vue
+<!-- 文件: app/error.vue -->
+<script setup lang="ts">
+    // error.vue 是全局兜底页：showError / 未捕获异常都会落到这里
+    const error = useError()
+
+    function goHome() {
+        // clearError 清空当前错误，并可附带跳转恢复现场
+        clearError({ redirect: '/' })
+    }
+</script>
+
+<template>
+    <main class="error-page">
+        <h1>{{ error?.statusCode ?? 500 }}</h1>
+        <p>{{ error?.statusMessage ?? '页面出了点问题，请稍后再试' }}</p>
+        <button type="button" @click="goHome">回到首页</button>
+    </main>
+</template>
+```
+> 运行方式：触发任意未捕获错误（如访问不存在的路由且服务端抛错）即进入该页，点击按钮回首页。
+
+## 最佳实践
+
+1. **渲染用 `useFetch`，动作用 `$fetch`**：混用是新手最常见的错误——用 `$fetch` 取首屏数据会丢掉 SSR 与水合复用。
+2. **一个项目一个 `$api` 实例**：baseURL、鉴权注入、401 处理全部收口在插件拦截器里，业务代码不发「裸请求」。
+3. **动作成功后显式 `refreshNuxtData(key)`**：不要假设缓存会自动同步，key 与 composable 里的约定保持一致。
+4. **错误信息分三层消化**：服务端 `createError` 给语义、调用处读 `error.data` / `err.data` 给反馈、边界组件做兜底。
+5. **SSR 请求内部 API 记得转发 cookie**：优先 `useRequestFetch()`，手动方案用 `useRequestHeaders(['cookie'])`。
+6. **`onResponseError` 里别再 `throw`**：拦截器只负责记录与跳转，把具体错误提示留给调用方，避免双重处理。
+
+## 常见问题
+
+### Q：`$fetch` 和 `useFetch` 到底怎么选？
+A：看数据是否参与渲染。渲染需要（列表、详情）→ `useFetch`，享受 SSR、水合与缓存共享；用户动作触发（提交、点赞）→ `$fetch`，它只是一次普通请求，没有缓存语义。
+
+### Q：`useFetch` 报错了，怎么拿到服务端返回的 JSON 错误体？
+A：`error` 是 `NuxtError`，服务端响应体在 `error.value.data`；若是 `$fetch` 的 try/catch，则读捕获异常的 `err.data`，`statusMessage`、`statusCode` 也在其上。
+
+### Q：`refreshNuxtData` 和 `clearNuxtData` 有什么区别？
+A：前者让指定 key 的 handler **重新执行**（数据刷新），后者只是**清空** data 回到初始态、不重新请求。登录后刷新列表用前者，登出清理状态用后者。
+
+### Q：为什么服务端渲染时请求内部 API 提示未登录，客户端却正常？
+A：SSR 期间请求由 Nuxt 服务器发出，不会自动携带浏览器 cookie。用 `useRequestFetch()`，或手动 `headers: useRequestHeaders(['cookie'])` 转发即可。
+
+## 小结
+
+- `$fetch`（ofetch）面向动作类请求，`useFetch` 面向渲染类数据，二者分工明确。
+- `$fetch.create` + `onRequest / onRequestError / onResponse / onResponseError` 在插件里封装统一 `$api`。
+- `refreshNuxtData` 重新取数、`clearNuxtData` 清空缓存，保证动作完成后的数据一致性。
+- 错误三层：`createError` → `error.value.data` / `err.data` → `error.vue` 与 `NuxtErrorBoundary` + `clearError`。
+- SSR 转发 cookie：`useRequestFetch()` 或 `useRequestHeaders(['cookie'])`。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-4" target="_blank" rel="noopener">EP.04 数据获取</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 登录表单提交应该用 `useFetch` 还是 `$fetch`？为什么？</b></summary>
+
+`$fetch`（或封装后的 `$api`）。登录是用户动作触发、与首屏渲染无关的请求，不需要水合与缓存语义；在事件回调里反复调用 `useFetch` 还会产生语义与缓存上的混乱。
+
+</details>
+
+<details>
+<summary><b>2. `useFetch('/api/notes/999')` 返回 404，如何在页面里展示服务端给出的「笔记不存在」？</b></summary>
+
+服务端 `createError({ statusCode: 404, statusMessage: '笔记不存在' })` 后，页面读取 `error.value.data.statusMessage`（顶层 `error.value.statusMessage` 同样可用）渲染提示即可。
+
+</details>
+
+<details>
+<summary><b>3. 为什么推荐在插件里用 `$fetch.create` 封装 `$api`，而不是到处裸用 `$fetch`？</b></summary>
+
+baseURL、token 注入、401 跳转、错误日志都在拦截器里统一收口：业务代码更简洁，全站请求行为一致，后续改造（换域名、加签名校验）只需动插件一处。
+
+</details>
+
+
+---
+
+<!-- 来源：09-usestate.md -->
+
+# 09. useState 与 SSR 状态
+
+> 本章示例：`app/composables/useCounter.ts`、`app/pages/playground.vue`、`app/pages/dashboard.vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/playground`
+
+## 概念解析
+
+在纯客户端 SPA 里，模块顶层写 `const count = ref(0)` 再多处导入，是最常见的「全局状态」写法。但在 SSR 场景下它是一颗定时炸弹：Node.js 服务端上模块只加载一次，这个 ref 是进程级单例，会被所有并发请求共享。A 用户把 count 改成 10，B 用户首屏 HTML 里就渲染出 10——既串数据，也可能泄露隐私。
+
+`useState` 是 Nuxt 给出的 SSR 安全共享状态方案。调用 `useState('key', () => 初始值)` 时，状态会按 key 存进当前请求独立的 Nuxt payload 中：服务端渲染时写入初值并随 HTML 序列化下发，客户端水合时按相同 key 还原。每个请求都有自己的 payload，请求之间天然隔离；两端 key 一致，水合也不会失配。
+
+`useState` 与 `ref` 的区别在于作用域：`ref` 是组件实例内的局部状态，`useState` 是一次会话内跨组件、跨页面共享的全局状态。因为值要被序列化进 payload，useState 里只能放可 JSON 序列化的数据（字符串、数字、布尔、数组、纯对象）；函数、Date 实例、Map/Set、类实例会在水合后失真，应避免。大对象若不需要深层响应式，可用 `useState('k', () => shallowRef(bigData))` 减少响应式代理带来的开销。
+
+另外两个配套 API：`clearNuxtState()` 一键清空所有 useState（退出登录时防止残留上一个用户的数据）；`useCookie('name')` 返回一个与 Cookie 双向同步的 ref，SSR 时服务端也能读到，适合存主题偏好、会话标记等——但注意 `httpOnly: true` 的 Cookie 客户端 JS 读不到，客户端的 ref 也就无法同步，只能由服务端改写。
+
+## 典型应用场景
+
+- **跨组件 UI 状态**：侧边栏折叠、全局 loading、多步骤表单的当前步骤。
+- **跨页面数据缓存**：列表筛选条件、已加载的数据，切换路由不丢失。
+- **登录用户对象**：配合 `useFetch('/api/auth/me')` 拿到用户后存入 useState，全站任意组件可读。
+- **偏好与标记**：`useCookie` 持久化主题、语言等偏好，SSR 渲染时即可生效。
+- **退出登录清场**：`clearNuxtState()` 清空全部状态，防止下一个用户看到残留。
+
+## 完整代码示例
+
+```ts
+// 文件: app/composables/useCounter.ts
+export const useCounter = () => {
+    // 以 key 'counter' 注册共享状态，SSR 下各请求互相隔离
+    const count = useState('counter', () => 0)
+
+    const inc = () => {
+        count.value++
+    }
+    const dec = () => {
+        count.value--
+    }
+    const reset = () => {
+        count.value = 0
+    }
+
+    return { count, inc, dec, reset }
+}
+```
+> 运行方式：composables/ 下文件自动导入，任意组件直接调用 useCounter()；打开 `http://localhost:3000/playground` 查看效果。
+
+```vue
+<!-- 文件: app/pages/playground.vue -->
+<script setup lang="ts">
+// 组合式函数自动导入，无需 import
+const { count, inc, dec, reset } = useCounter()
+// 再次调用拿到的是同一份状态（key 相同）
+const again = useCounter()
+</script>
+
+<template>
+    <main>
+        <h1>useState 共享状态演示</h1>
+        <p>计数：{{ count }} / 二次读取：{{ again.count }}</p>
+        <button @click="inc">+1</button>
+        <button @click="dec">-1</button>
+        <button @click="reset">清零</button>
+        <!-- 切换到其他页面再返回，数值仍保留在本次会话中 -->
+    </main>
+</template>
+```
+> 运行方式：浏览器访问 `http://localhost:3000/playground`，点击按钮后切换路由再返回，数值保持不变。
+
+```vue
+<!-- 文件: app/pages/dashboard.vue -->
+<script setup lang="ts">
+definePageMeta({ middleware: 'auth' })
+
+const { data } = await useFetch('/api/auth/me')
+// useCookie：与 Cookie 同步的 ref，SSR 可读写，适合保存偏好
+const theme = useCookie<'light' | 'dark'>('theme', { default: () => 'light' })
+
+const logout = async () => {
+    await $fetch('/api/auth/logout', { method: 'POST' })
+    // 清空所有 useState，避免残留当前用户的数据
+    clearNuxtState()
+    await navigateTo('/login')
+}
+</script>
+
+<template>
+    <main>
+        <h1>你好，{{ data?.user?.name }}</h1>
+        <button @click="theme = theme === 'light' ? 'dark' : 'light'">
+            切换主题（当前 {{ theme }}）
+        </button>
+        <button @click="logout">退出登录</button>
+    </main>
+</template>
+```
+> 运行方式：先访问 `http://localhost:3000/login` 用 demo / nuxt1234 登录，再进入 /dashboard 体验切换主题与退出登录。
+
+## 最佳实践
+
+1. **全局状态默认用 useState，不用模块顶层 ref**——后者在 SSR 下是跨请求单例，必然串数据。
+2. **key 要语义化且全局唯一**，如 `'auth-user'`、`'notes-list'`，避免不同模块撞 key 互相覆盖。
+3. **只存可序列化数据**——Date 先转 ISO 字符串、Map 转数组，否则水合后类型丢失。
+4. **大对象用 shallowRef 包裹**——避免深度响应式代理拖慢首屏渲染。
+5. **退出登录记得 clearNuxtState()**——配合删除会话 Cookie，才算真正清场。
+6. **httpOnly Cookie 别指望客户端读**——需要客户端感知登录态时，以接口返回为准。
+
+## 常见问题
+
+### Q：为什么在模块顶层 export const count = ref(0)，开发时好像也正常？
+
+A：dev 模式下通常只有你一个用户、且 nuxi 频繁重启，问题被掩盖。生产环境多请求并发、进程常驻时必然串状态，务必改用 useState。
+
+### Q：useState 和 Pinia 选哪个？
+
+A：轻量共享（几个值、无需 action/getter 组织）用 useState；复杂业务状态（多实体、派生计算、DevTools 调试）用 Pinia，二者可共存，详见第 10 章。
+
+### Q：useState 的初始值函数会执行几次？
+
+A：服务端渲染时执行一次并写入 payload，客户端水合时若 payload 已有该 key 则直接复用，不再执行 init；硬刷新（重新 SSR）才会再次执行。
+
+### Q：useCookie 改了值，请求头里却没带新 Cookie？
+
+A：检查是否设置了 `httpOnly: true`——客户端 JS 无法读写 httpOnly Cookie，ref 也就不会同步；去掉该选项，或改为由服务端接口设置。
+
+## 小结
+
+- 模块顶层 ref 在 SSR 下是跨请求单例，会造成用户间串状态。
+- `useState('key', init)` 提供按请求隔离、随 payload 序列化水合的共享状态。
+- useState 只能存放可序列化数据；大对象用 shallowRef 包裹降开销。
+- `clearNuxtState()` 清空全部状态；`useCookie` 提供 SSR 友好的 Cookie ref，但 httpOnly Cookie 客户端不可读。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-5" target="_blank" rel="noopener">EP.05 状态管理</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 为什么 SSR 下不能用模块顶层 ref 做全局状态？</b></summary>
+
+服务端模块只加载一次，顶层 ref 是进程级单例，会被所有并发请求共享，导致用户之间串数据；useState 按请求隔离并随 payload 水合，才是正确姿势。
+
+</details>
+
+<details>
+<summary><b>2. useState 与 ref 的核心区别是什么？</b></summary>
+
+ref 是组件实例内的局部状态；useState 以 key 注册、跨组件跨页面共享，且值会序列化进 payload 在 SSR 与客户端之间同步，因此只能放可序列化数据。
+
+</details>
+
+<details>
+<summary><b>3. 退出登录时为什么要调用 clearNuxtState()？</b></summary>
+
+useState 中的用户数据不会在删除 Cookie 后自动消失，残留在客户端会继续展示；clearNuxtState() 清空所有 key，保证下一个用户从干净状态开始。
+
+</details>
+
+
+---
+
+<!-- 来源：10-composables-pinia.md -->
+
+# 10. composables 与 Pinia
+
+> 本章示例：`app/composables/useNotes.ts`、`app/stores/counter.ts`、`app/stores/user.ts`、`app/pages/playground.vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/playground`
+
+## 概念解析
+
+组合式函数（composable）是把可复用逻辑封装成函数的标准方式。Nuxt 约定 `app/composables/` 目录下的文件自动导入：文件名即函数名（如 `useNotes.ts` 导出 `useNotes`），业务代码里零 import 直接用。自动导入默认扫描顶层文件与子目录的 index 文件，更深层级需在 nuxt.config.ts 的 `imports.dirs` 中登记。命名上统一 use 前缀 camelCase，返回值约定为「响应式状态 + 方法」的对象，便于解构使用。
+
+编写 composable 的黄金法则：内部放心使用 useState、useFetch、useRoute 等 Nuxt API，但这些 API 依赖当前 Nuxt 实例上下文，必须在 setup 同步链路中调用（组件 setup、插件、路由中间件）；在 `await` 之后或事件回调里首次调用会报 "Nuxt instance unavailable"。
+
+Pinia 是 Vue 官方状态管理库。执行 `npm i @pinia/nuxt` 并在 nuxt.config.ts 注册 `modules: ['@pinia/nuxt']` 后开箱即用，store 放在 `app/stores/` 下同样自动导入。`defineStore` 有两种风格：options 风格（state/getters/actions 三段式，结构清晰）与 setup 风格（用 ref/computed 自由组合，TypeScript 推断更佳）。
+
+SSR 下 Pinia 状态由 @pinia/nuxt 模块自动序列化进 payload 并在客户端水合还原，原理与 useState 一致，请求之间互不干扰。注意在 store 里调用 Nuxt API 的边界：setup 风格 store 的同步初始化阶段可用 useFetch；action 常在事件回调中执行，异步请求建议改用 `$fetch`，页面导航交给组件里的 `navigateTo`，不要在 action 深处导航。
+
+## 典型应用场景
+
+- **逻辑复用**：useNotes 封装笔记列表的获取与缓存，多页面共享。
+- **简单全局状态**：useCounter 这类轻量场景，composable + useState 即可胜任。
+- **复杂业务状态**：用户、权限、购物车等多实体联动，用 Pinia 的 getter/action 组织。
+- **派生计算**：Pinia getter（如 double、isAdmin）集中维护派生逻辑。
+- **调试追踪**：Pinia 在 Vue DevTools 中有专属面板，便于观察状态变更。
+
+## 完整代码示例
+
+```ts
+// 文件: app/composables/useNotes.ts
+import type { Note } from '#shared/types/note'
+
+export const useNotes = () => {
+    // 列表缓存在 useState 中，跨页面共享且 SSR 安全
+    const notes = useState<Note[]>('notes', () => [])
+    const keyword = ref('')
+
+    const refresh = async () => {
+        // query 支持传入 ref，keyword 变化会触发重新请求
+        const { data } = await useFetch<Note[]>('/api/notes', {
+            query: { q: keyword }
+        })
+        notes.value = data.value ?? []
+    }
+
+    return { notes, keyword, refresh }
+}
+```
+> 运行方式：自动导入，页面 setup 中直接 `const { notes, refresh } = useNotes()` 即可使用。
+
+```ts
+// 文件: app/stores/counter.ts
+// options 风格：state / getters / actions 三段式
+export const useCounterStore = defineStore('counter', {
+    state: () => ({
+        count: 0,
+        step: 1
+    }),
+    getters: {
+        // 派生状态，缓存自动生效
+        double: (state) => state.count * 2
+    },
+    actions: {
+        inc() {
+            this.count += this.step
+        },
+        reset() {
+            this.count = 0
+        }
+    }
+})
+```
+> 运行方式：注册 @pinia/nuxt 后自动导入，组件中 `const store = useCounterStore()` 直接使用。
+
+```ts
+// 文件: app/stores/user.ts
+// setup 风格：像写组件 setup 一样写 store
+export const useUserStore = defineStore('user', () => {
+    const user = ref<{ name: string } | null>(null)
+
+    const fetchMe = async () => {
+        const { data } = await useFetch('/api/auth/me')
+        user.value = data.value?.user ?? null
+    }
+
+    const logout = async () => {
+        // action 内处于事件回调链路，用 $fetch 而非 useFetch
+        await $fetch('/api/auth/logout', { method: 'POST' })
+        user.value = null
+    }
+
+    return { user, fetchMe, logout }
+})
+```
+> 运行方式：登录后调用 `useUserStore().fetchMe()`，user 状态在 SSR 水合后全站共享。
+
+```vue
+<!-- 文件: app/pages/playground.vue -->
+<script setup lang="ts">
+// composable 与 store 均为自动导入
+const { count, inc, dec, reset } = useCounter()
+
+const counterStore = useCounterStore()
+// storeToRefs 解构 state/getters，保持响应式
+const { count: storeCount, double } = storeToRefs(counterStore)
+// actions 无响应式，可直接解构
+const { inc: storeInc, reset: storeReset } = counterStore
+</script>
+
+<template>
+    <main>
+        <section>
+            <h2>useCounter（composable）</h2>
+            <p>{{ count }}</p>
+            <button @click="inc">+1</button>
+            <button @click="dec">-1</button>
+            <button @click="reset">清零</button>
+        </section>
+        <section>
+            <h2>Pinia counter store</h2>
+            <p>{{ storeCount }}，双倍：{{ double }}</p>
+            <button @click="storeInc">+{{ counterStore.step }}</button>
+            <button @click="storeReset">清零</button>
+        </section>
+        <!-- 同页再挂一个使用同一 store 的组件，验证状态同步 -->
+        <CounterBox />
+    </main>
+</template>
+```
+> 运行方式：访问 `http://localhost:3000/playground`，对比两种方案的响应式表现与状态同步。
+
+## 最佳实践
+
+1. **可复用逻辑优先抽 composable**——符合组合式思想，也便于测试与按需引入。
+2. **useXxx 只在 setup 同步链路调用**——await 之后改用已取出的值，避免丢失 Nuxt 上下文。
+3. **轻量用 useState，复杂用 Pinia**——别为两个值引入 store，也别用裸 ref 堆出「面条状态」。
+4. **解构 store 用 storeToRefs**——直接解构 state/getters 会丢响应式；actions 可直接解构。
+5. **store action 里用 $fetch**——useFetch 依赖 setup 上下文，action 常在事件回调中执行。
+6. **导航放组件，不放 store**——action 里 navigateTo 易触发上下文告警，也让 store 更难复用。
+
+## 常见问题
+
+### Q：composables 子目录里的文件为什么不生效？
+
+A：自动导入默认只扫顶层文件与子目录的 index 文件；深层文件需在 nuxt.config.ts 配置 `imports: { dirs: ['composables/**'] }`。
+
+### Q：为什么报 "Nuxt instance is unavailable"？
+
+A：在 await 之后或定时器回调里首次调用了 useFetch/useState 等 API。把调用提到 setup 同步阶段，或在延迟执行的函数里改用 $fetch。
+
+### Q：options 风格与 setup 风格怎么选？
+
+A：团队偏传统、追求结构统一选 options；需要灵活组合 composable、更好的 TS 推断选 setup。二者可在同一项目混用。
+
+### Q：解构 store 后数据不更新了？
+
+A：state 与 getters 需用 `storeToRefs(store)` 解构才能保持响应式；只有 actions 能直接解构。
+
+## 小结
+
+- `app/composables/` 自动导入，use 前缀命名，返回「状态 + 方法」对象。
+- composable 内部可用 useState/useFetch，但必须处于 setup 同步链路。
+- Pinia 经 `@pinia/nuxt` 接入，`app/stores/` 自动导入，defineStore 支持 options 与 setup 两种风格。
+- `storeToRefs` 保持解构响应式；SSR 下 store 状态随 payload 水合还原。
+- action 里用 `$fetch`，导航留给页面组件。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-5" target="_blank" rel="noopener">EP.05 状态管理</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 为什么 useFetch 不能在 await 之后的回调里首次调用？</b></summary>
+
+这类 API 依赖当前 Nuxt 实例上下文，跨过异步边界后上下文不再可用，会报 "Nuxt instance unavailable"；应在 setup 同步阶段建立调用，或改用 $fetch。
+
+</details>
+
+<details>
+<summary><b>2. storeToRefs 的作用是什么？</b></summary>
+
+它把 store 的 state 与 getters 转成 ref 集合，解构后仍保持响应式；直接解构得到的是普通值，store 更新时视图不会刷新。
+
+</details>
+
+<details>
+<summary><b>3. useState 与 Pinia 如何取舍？</b></summary>
+
+少量、松散的全局值用 useState 即可；多实体、含派生计算与业务流程的复杂状态用 Pinia，还能获得 DevTools 支持；两者在同一项目可共存。
+
+</details>
+
+
+---
+
+<!-- 来源：11-server-api.md -->
+
+# 11. Nitro 服务端 API
+
+> 本章示例：`server/api/hello.get.ts`、`server/api/notes/`、`server/middleware/logger.ts`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/api/hello`
+
+## 概念解析
+
+Nuxt 4 的服务端能力由内置的 Nitro 引擎驱动：开发时它就是 dev server，构建时把 `server/` 目录编译成独立产物，并通过预设（preset）适配 Node、Deno 以及各类 Serverless / 边缘平台。你只管写业务代码，打包、压缩与运行时适配都交给 Nitro，同一套代码可以部署到几乎任何平台。
+
+`server/api/` 是写接口的地方：每个文件默认导出一个 `defineEventHandler`，文件路由自动映射为 `/api/*` 路径。文件名可加方法后缀——`hello.get.ts` 只响应 GET，`index.post.ts` 处理该目录的 POST。一个最小处理器只需一行核心代码：`export default defineEventHandler(() => ({ message: 'hello' }))`（见 `server/api/hello.get.ts`），返回对象会被自动序列化为 JSON。
+
+处理函数收到 h3 的 event 对象，配套工具全部自动导入：`readBody` 读请求体、`getQuery` 取查询参数、`getRouterParam` 取动态路由段、`setResponseStatus` 改状态码、`sendRedirect` 做重定向。出错时抛 `createError({ statusCode, statusMessage, data })`：Nitro 会按状态码返回 JSON 错误体；客户端 `useFetch` 得到非空的 `error`，`$fetch` 则抛出带 `statusCode`/`data` 的异常，可直接展示 statusMessage。
+
+除 API 外还有几个约定目录：`server/middleware/` 中的文件对每个请求按序执行（日志、鉴权拦截），注意正常中间件不要返回响应体，否则会短路后续所有处理；`server/routes/` 与 api 目录结构相同但不带 `/api` 前缀，适合 sitemap、RSS、webhook 等根路径资源；`server/plugins/` 注册 Nitro 生命周期插件；`server/utils/` 下的工具自动导入，供所有服务端代码使用。
+
+## 典型应用场景
+
+- **BFF 接口层**：聚合第三方 API、隐藏密钥，为前端提供干净的数据。
+- **轻量后端**：CRUD、表单提交、鉴权，小项目无需另起后端服务。
+- **服务端中间件**：请求日志、限流、按路径前缀统一鉴权。
+- **非 API 路由**：`server/routes/sitemap.xml.ts` 这类根路径资源。
+- **服务端工具复用**：数据访问层放 `server/utils/`，处理器之间共享。
+
+## 完整代码示例
+
+```ts
+// 文件: server/api/notes/index.get.ts
+// 演示用内存数据，持久化版本见第 12 章 server/utils/notes-store.ts
+const notes = [
+    { id: '1', title: 'useFetch 要点', content: '注意水合与 key', createdAt: '2026-10-01' },
+    { id: '2', title: 'Pinia 两种风格', content: 'options 与 setup', createdAt: '2026-10-02' },
+    { id: '3', title: 'Nitro 入门', content: 'server/api 约定', createdAt: '2026-10-03' }
+]
+
+export default defineEventHandler((event) => {
+    // getQuery 解析 ?q= 关键字做标题过滤
+    const { q } = getQuery(event)
+    if (typeof q === 'string' && q.trim() !== '') {
+        return notes.filter((n) => n.title.includes(q.trim()))
+    }
+    return notes
+})
+```
+> 运行方式：dev 启动后访问 `http://localhost:3000/api/notes` 或 `http://localhost:3000/api/notes?q=Pinia` 查看过滤效果。
+
+```ts
+// 文件: server/api/notes/index.post.ts
+export default defineEventHandler(async (event) => {
+    // readBody 解析 JSON 请求体
+    const body = await readBody<{ title?: string; content?: string }>(event)
+    if (!body?.title || body.title.trim() === '') {
+        // createError 抛出 400，客户端能拿到 statusCode 与 statusMessage
+        throw createError({ statusCode: 400, statusMessage: 'title 为必填项' })
+    }
+    const note = {
+        id: crypto.randomUUID(),
+        title: body.title.trim(),
+        content: body.content ?? '',
+        createdAt: new Date().toISOString()
+    }
+    // 返回新建资源，状态码置 201
+    setResponseStatus(event, 201)
+    return note
+})
+```
+> 运行方式：`curl -X POST http://localhost:3000/api/notes -H 'Content-Type: application/json' -d '{"title":"新笔记"}'`；缺 title 时返回 400。
+
+```ts
+// 文件: server/api/notes/[id].get.ts
+export default defineEventHandler((event) => {
+    // getRouterParam 读取动态段 [id]
+    const id = getRouterParam(event, 'id')
+    // 演示数据（正式版由共享数据层提供，见第 12 章）
+    const found = id === '1' || id === '2' || id === '3'
+    if (!found) {
+        throw createError({ statusCode: 404, statusMessage: '笔记不存在' })
+    }
+    return { id, title: `笔记 ${id}`, content: '详情内容', createdAt: '2026-10-01' }
+})
+```
+> 运行方式：访问 `http://localhost:3000/api/notes/1` 返回详情；访问 /api/notes/999 得到 404 JSON。
+
+```ts
+// 文件: server/middleware/logger.ts
+export default defineEventHandler((event) => {
+    const start = Date.now()
+    // 响应结束后输出方法与耗时
+    event.node.res.on('finish', () => {
+        console.log(`${event.method} ${event.path} - ${Date.now() - start}ms`)
+    })
+    // 中间件通常不 return 任何值，返回响应体会拦截后续所有处理
+})
+```
+> 运行方式：dev 启动后任意访问页面或接口，终端即打印每个请求的方法、路径与耗时。
+
+## 最佳实践
+
+1. **方法用文件后缀约束**——`hello.get.ts` 语义明确，比处理器里判断 method 干净。
+2. **错误统一走 createError**——状态码语义化（400/401/404/500），客户端按 statusCode 分支处理。
+3. **校验放在处理器开头**——readBody 之后先验必填与类型，fail fast。
+4. **中间件别轻易返回响应**——return 值会短路请求，只在鉴权拦截等场景刻意为之。
+5. **数据访问收敛到 server/utils/**——处理器只编排参数与响应，逻辑下沉便于复用和测试。
+6. **根路径资源放 server/routes/**——记住只有 api 目录自动带 /api 前缀。
+
+## 常见问题
+
+### Q：useFetch('/api/notes') 报 404，但文件明明存在？
+
+A：确认文件在 `server/api/` 下且文件名拼写正确；新增服务端文件偶尔需要重启 dev server 才会被 Nitro 注册。
+
+### Q：客户端怎么拿到 createError 里的 data？
+
+A：`useFetch` 返回的 `error.value.data` 即错误体的 data 字段；`$fetch` 抛出的异常上也有 `error.data` 与 `error.statusCode`。
+
+### Q：server/middleware 和 defineNuxtRouteMiddleware 有什么区别？
+
+A：server/middleware 作用于所有到达服务端的请求（含 API 与页面 SSR），是 Nitro/h3 层；defineNuxtRouteMiddleware 是客户端路由层，只在页面导航时触发。
+
+### Q：处理器里直接返回对象就是 JSON 吗？
+
+A：是，h3 会把返回的对象/数组自动序列化为 JSON；返回字符串则按 text/plain 发送，也可用 `setResponseStatus` 调整状态码。
+
+## 小结
+
+- `server/` 由 Nitro 驱动，dev server 与生产构建同源，各平台预设一键适配。
+- `server/api/` 文件路由映射为 `/api/*`，方法后缀（.get/.post）区分请求方法。
+- h3 工具自动导入：readBody / getQuery / getRouterParam / setResponseStatus / sendRedirect / createError。
+- `server/middleware/` 拦截所有请求；`server/routes/` 不带 /api 前缀；`server/utils/` 自动导入；`server/plugins/` 注册 Nitro 插件。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-6" target="_blank" rel="noopener">EP.06 服务端全栈</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. server/api 与 server/routes 的区别是什么？</b></summary>
+
+api 目录下路由自动带 /api 前缀（hello.get.ts → /api/hello）；routes 目录挂在根路径（feed.xml.ts → /feed.xml），适合 sitemap、RSS 等非 API 资源。
+
+</details>
+
+<details>
+<summary><b>2. 客户端如何感知服务端 createError 抛出的错误？</b></summary>
+
+useFetch 的 error.value 非空，error.value.statusCode / statusMessage / data 均可读；$fetch 会抛异常，捕获后取 error.statusCode 与 error.data。
+
+</details>
+
+<details>
+<summary><b>3. 为什么 server/middleware 里通常不能 return 响应体？</b></summary>
+
+中间件对每个请求生效，一旦返回响应体就会短路后续所有处理器，页面与 API 都会被拦截；只有刻意拦截（如鉴权拒绝）时才返回或抛错。
+
+</details>
+
+
+---
+
+<!-- 来源：12-fullstack.md -->
+
+# 12. 全栈实战：存储与鉴权
+
+> 本章示例：`server/utils/notes-store.ts`、`server/api/auth/`、`app/pages/login.vue`、`app/middleware/auth.ts`
+> 运行方式：`cd app && npm install && npm run dev`，访问 `http://localhost:3000/login`，用 demo / nuxt1234 登录
+
+## 概念解析
+
+Nitro 内置的 unstorage 提供统一的键值存储：`useStorage('data')` 拿到 'data' 挂载点，`getItem` / `setItem` / `removeItem` 即可读写。开发环境默认用 fs 驱动自动落盘到项目 `.data/` 目录，重启不丢；生产需在 nuxt.config.ts 显式配置 `nitro.storage.data` 指定驱动（fs、redis 等任选）。把数据访问封装进 `server/utils/notes-store.ts`，API 处理器只负责参数与响应，存储实现可随时替换。
+
+鉴权采用最朴素的 Cookie 会话：登录接口校验账号后 `setCookie(event, 'session', ...)` 写入 httpOnly Cookie；后续请求浏览器自动携带，`me.get.ts` 用 `getCookie(event, 'session')` 还原用户（未登录返回 `{ user: null }`）；退出用 `deleteCookie(event, 'session', { path: '/' })`。httpOnly 让 XSS 拿不到 Cookie，`sameSite: 'lax'` 缓解 CSRF，`path: '/'` 保证全站携带。演示项目直接把用户名当会话值，生产应换成签名 token 或数据库会话。
+
+对敏感接口可在 `server/middleware/` 做前缀拦截：判断 `event.path.startsWith('/api/admin')`，无 session 则 `throw createError({ statusCode: 401 })`，把鉴权挡在处理器之外，比每个接口各自检查可靠。
+
+最后是密钥管理：nuxt.config.ts 的 `runtimeConfig: { apiSecret: 'dev-secret', public: { siteName: 'Nuxt LearnHub' } }` 中，`apiSecret` 只在服务端可见，`public.*` 才会被打进客户端包。服务端通过 `useRuntimeConfig()` 读取；部署时可用环境变量 `NUXT_API_SECRET`、`NUXT_PUBLIC_SITE_NAME` 覆盖，密钥永远不要写进 public。
+
+## 典型应用场景
+
+- **笔记 CRUD**：useStorage 持久化 + RESTful API + 前端列表页，全栈最小闭环。
+- **Cookie 登录闭环**：login / me / logout 三接口 + 客户端路由守卫。
+- **管理后台保护**：server/middleware 对 /api/admin 前缀统一鉴权。
+- **密钥隔离**：第三方 API Key 放 runtimeConfig 私有字段，接口里代理调用。
+- **多环境配置**：NUXT_* 环境变量在 CI/CD 中覆盖 runtimeConfig。
+
+## 完整代码示例
+
+```ts
+// 文件: server/utils/notes-store.ts
+import type { Note } from '#shared/types/note'
+
+// useStorage('data')：dev 落盘 .data/，生产由 nitro.storage 配置驱动
+const storage = () => useStorage('data')
+
+const seedNotes = (): Note[] => [
+    { id: '1', title: 'useFetch 要点', content: '注意水合与 key', createdAt: '2026-10-01T00:00:00.000Z' },
+    { id: '2', title: 'Pinia 两种风格', content: 'options 与 setup', createdAt: '2026-10-02T00:00:00.000Z' },
+    { id: '3', title: 'Nitro 入门', content: 'server/api 约定', createdAt: '2026-10-03T00:00:00.000Z' }
+]
+
+// 首次访问写入 3 条种子笔记
+export const listNotes = async (): Promise<Note[]> => {
+    let notes = await storage().getItem<Note[]>('notes')
+    if (!notes) {
+        notes = seedNotes()
+        await storage().setItem('notes', notes)
+    }
+    return notes
+}
+
+export const createNote = async (title: string, content = ''): Promise<Note> => {
+    const notes = await listNotes()
+    const note: Note = { id: crypto.randomUUID(), title, content, createdAt: new Date().toISOString() }
+    notes.push(note)
+    await storage().setItem('notes', notes)
+    return note
+}
+
+export const getNote = async (id: string): Promise<Note | undefined> => {
+    const notes = await listNotes()
+    return notes.find((n) => n.id === id)
+}
+
+export const removeNote = async (id: string): Promise<boolean> => {
+    const notes = await listNotes()
+    const next = notes.filter((n) => n.id !== id)
+    if (next.length === notes.length) return false
+    await storage().setItem('notes', next)
+    return true
+}
+```
+> 运行方式：被 server/api/notes/ 下处理器直接调用（server/utils 自动导入）；dev 下数据写入项目 .data/ 目录，重启仍在。
+
+```ts
+// 文件: server/api/auth/login.post.ts
+export default defineEventHandler(async (event) => {
+    const body = await readBody<{ username?: string; password?: string }>(event)
+    // 演示账号写死；生产应查库并比对密码哈希
+    if (body?.username !== 'demo' || body?.password !== 'nuxt1234') {
+        throw createError({ statusCode: 401, statusMessage: '用户名或密码错误' })
+    }
+    // httpOnly 防 XSS 窃取，sameSite lax 缓解 CSRF
+    setCookie(event, 'session', 'demo', {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 7
+    })
+    return { user: { name: 'demo' } }
+})
+```
+> 运行方式：`curl -i -X POST http://localhost:3000/api/auth/login -H 'Content-Type: application/json' -d '{"username":"demo","password":"nuxt1234"}'`，响应头可见 Set-Cookie。
+
+```vue
+<!-- 文件: app/pages/login.vue -->
+<script setup lang="ts">
+const username = ref('')
+const password = ref('')
+const errorMsg = ref('')
+
+const onSubmit = async () => {
+    errorMsg.value = ''
+    try {
+        await $fetch('/api/auth/login', {
+            method: 'POST',
+            body: { username: username.value, password: password.value }
+        })
+        // 登录成功跳转仪表盘，Cookie 由浏览器自动携带
+        await navigateTo('/dashboard')
+    } catch (err: any) {
+        // createError 抛出的 statusMessage 会随错误体返回
+        errorMsg.value = err?.data?.statusMessage ?? '登录失败'
+    }
+}
+</script>
+
+<template>
+    <main>
+        <h1>登录 Nuxt LearnHub</h1>
+        <form @submit.prevent="onSubmit">
+            <input v-model="username" placeholder="用户名 demo" />
+            <input v-model="password" type="password" placeholder="密码 nuxt1234" />
+            <button type="submit">登录</button>
+        </form>
+        <p v-if="errorMsg">{{ errorMsg }}</p>
+    </main>
+</template>
+```
+> 运行方式：访问 `http://localhost:3000/login`，输入 demo / nuxt1234 提交后跳转 /dashboard；密码错误时显示 401 提示。
+
+```ts
+// 文件: app/middleware/auth.ts
+// 具名路由中间件：页面通过 definePageMeta({ middleware: 'auth' }) 启用
+export default defineNuxtRouteMiddleware(async () => {
+    // SSR 时 useFetch 自动把请求 Cookie 转发给服务端接口
+    const { data } = await useFetch('/api/auth/me')
+    if (!data.value?.user) {
+        return navigateTo('/login')
+    }
+})
+```
+> 运行方式：未登录直接访问 `http://localhost:3000/dashboard` 会被重定向到 /login；登录后可正常进入。
+
+## 最佳实践
+
+1. **数据访问封装进 server/utils**——处理器保持瘦，存储实现可随时从 fs 换成 redis。
+2. **会话 Cookie 必加 httpOnly + sameSite**——演示可以简化，安全习惯不能简化。
+3. **登录态以服务端为准**——me.get.ts 是单一事实来源，客户端别自己猜。
+4. **密钥放 runtimeConfig 私有字段**——只有 public.* 会暴露到客户端包。
+5. **失败路径显式处理**——401 给出 statusMessage，客户端展示友好文案。
+6. **中间件守卫敏感前缀**——/api/admin 统一拦截，比每个处理器各自检查可靠。
+
+## 常见问题
+
+### Q：dev 下数据写到哪了？为什么删了 .data 目录数据就重置？
+
+A：`useStorage('data')` 在开发环境默认用 fs 驱动落盘项目 `.data/` 目录，删除即清空。生产请在 nuxt.config.ts 配置 `nitro.storage.data` 指定持久化驱动。
+
+### Q：明明登录成功了，dashboard 还是被弹回 login？
+
+A：检查 login 接口的 Set-Cookie 是否带 `path: '/'`；再确认 middleware/auth.ts 里 `useFetch('/api/auth/me')` 的返回结构是 `{ user }`，判断条件与之匹配。
+
+### Q：apiSecret 会被打包到客户端吗？
+
+A：不会。runtimeConfig 中只有 `public.*` 会注入客户端产物；apiSecret 等私有字段仅服务端 `useRuntimeConfig()` 可读。
+
+### Q：为什么用 httpOnly Cookie 而不是 localStorage 存令牌？
+
+A：httpOnly Cookie 对 JS 不可见，可抵御 XSS 窃取；localStorage 里任何脚本都能读。配合 `sameSite: 'lax'` 还能缓解 CSRF。
+
+## 小结
+
+- `useStorage('data')` 提供持久化 KV，dev 落盘 `.data/`，生产配 `nitro.storage.data`。
+- `server/utils/` 自动导入，notes-store 收敛 CRUD，处理器只做编排。
+- setCookie / getCookie / deleteCookie 实现 Cookie 会话，httpOnly + sameSite lax 是底线。
+- `server/middleware/` 可按 /api/admin 前缀统一鉴权。
+- runtimeConfig 私有字段仅服务端可见，`public.*` 才进客户端包。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-6" target="_blank" rel="noopener">EP.06 服务端全栈</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. useStorage('data') 在开发与生产环境的行为差异是什么？</b></summary>
+
+dev 默认 fs 驱动自动落盘 .data/ 目录；生产无默认持久化，需在 nuxt.config.ts 的 nitro.storage.data 配置驱动（fs/redis 等），否则重启即丢。
+
+</details>
+
+<details>
+<summary><b>2. 为什么登录接口要设置 httpOnly: true 与 sameSite: 'lax'？</b></summary>
+
+httpOnly 使 Cookie 对客户端 JS 不可见，防 XSS 窃取会话；sameSite lax 限制跨站请求携带 Cookie，缓解 CSRF。
+
+</details>
+
+<details>
+<summary><b>3. runtimeConfig 中 apiSecret 与 public.siteName 的可见性区别？</b></summary>
+
+apiSecret 只在服务端通过 useRuntimeConfig() 可读，不进入客户端产物；public.* 会序列化进客户端包、浏览器可见，因此密钥绝不放 public。
+
+</details>
+
+
+---
+
+<!-- 来源：13-plugins-modules-seo.md -->
+
+# 13. 插件、模块与 SEO
+
+> 本章示例：`app/plugins/01.hello.client.ts`、`app/plugins/02.api.ts`、`app/nuxt.config.ts`、`app/pages/notes/[id].vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器打开 `http://localhost:3000` 后查看控制台与页面源代码中的 `<head>`
+
+## 概念解析
+
+**插件（Plugin）** 是在 Nuxt 应用启动阶段、渲染任何页面之前执行的代码，放在 `app/plugins/` 目录下即被自动注册。它的典型用途是：初始化全局库、注册全局指令、以及通过 `provide` 向全应用注入助手（例如封装好的 API 客户端）。插件用 `defineNuxtPlugin` 定义，接收 `nuxtApp` 作为参数——它是 Nuxt 的运行时上下文，等价于组合式函数里拿到的 `useNuxtApp()`。
+
+**运行环境与执行顺序**是插件的两个关键维度。文件名后缀 `.client.ts` 表示只在客户端执行、`.server.ts` 表示只在服务端执行，无后缀则两端都跑（SSR 时先在服务器跑一遍、水合时在浏览器再跑一遍）。多个插件之间默认按文件名排序执行，社区约定用数字前缀（`01.`、`02.`）显式控制先后，例如 `02.api.ts` 可以安全依赖 `01.` 中完成的基础设施。
+
+**模块（Module）** 则是「构建期」的扩展：它在 Nuxt 启动时拿到整个配置，可以注册组件、注入插件、修改 Vite/Nitro 配置，是生态能力的标准入口。Pinia、Tailwind、VueUse 等都以模块形式接入，写进 `nuxt.config.ts` 的 `modules` 数组即可，`nuxi module add` 命令能一键完成安装与配置。
+
+**SEO** 在 Nuxt 中是头等公民：`app.head` 提供全站默认值，`useHead` 提供通用 head 管理，`useSeoMeta` 则以类型安全的方式设置 title、description、og\* 等最常见字段，并自动处理 SSR 输出与客户端切换路由时的更新。
+
+## 典型应用场景
+
+- **封装 API 客户端**：用 `$fetch.create` 配上统一 `baseURL` 与错误拦截，通过 `provide: { api }` 注入，业务代码里 `useNuxtApp().$api` 直接用。
+- **只在浏览器里跑的逻辑**：接入依赖 `window`/`document` 的第三方库（如编辑器、图表），命名为 `xx.client.ts` 避免 SSR 报错。
+- **一键接入生态能力**：状态管理用 `@pinia/nuxt`、图标/图片优化用 `@nuxt/image`、原子化 CSS 用 `@nuxtjs/tailwindcss`、组合式工具集用 `@vueuse/nuxt`。
+- **内容站 SEO**：列表页与详情页用 `useSeoMeta` 按数据动态生成标题与分享卡片，配合 sitemap 模块让搜索引擎完整收录。
+- **渲染用户生成内容**：富文本摘要来自不可信输入时，用 `useHeadSafe` 限制可注入的标签与属性，防 XSS。
+
+## 完整代码示例
+
+```ts
+// 文件: app/plugins/01.hello.client.ts
+export default defineNuxtPlugin(() => {
+    // .client 后缀：本插件只在浏览器端执行，SSR 阶段被跳过
+    console.log('[plugin] hello 插件已在客户端启动')
+})
+```
+
+> 运行方式：`cd app && npm run dev`，打开浏览器控制台即可看到日志；查看「查看网页源代码」中不会有该输出。
+
+```ts
+// 文件: app/plugins/02.api.ts
+export default defineNuxtPlugin((nuxtApp) => {
+    // 基于 $fetch 创建带统一配置的实例：baseURL 指向本站 Nitro API
+    const api = $fetch.create({
+        baseURL: '/api',
+        onResponseError({ response }) {
+            // 统一错误出口：日志 + 可在此接入全局提示
+            console.error('[api]', response.status, response._data)
+        }
+    })
+    return {
+        provide: {
+            // 注入后可通过 useNuxtApp().$api 或模板中的 $api 访问
+            api
+        }
+    }
+})
+```
+
+> 运行方式：`cd app && npm run dev`；在任意页面的 `<script setup>` 中写 `const { $api } = useNuxtApp()` 后 `await $api('/notes')` 即可请求 `server/api/notes.ts`。
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    // 模块生态：Pinia 状态管理；更多模块可用 nuxi module add 安装
+    modules: ['@pinia/nuxt'],
+    css: ['~/assets/css/main.css'],
+    runtimeConfig: {
+        apiSecret: 'dev-secret',
+        public: {
+            siteName: 'Nuxt LearnHub'
+        }
+    },
+    routeRules: {
+        '/admin/**': { ssr: false }
+    },
+    app: {
+        head: {
+            // 全站默认 head：各页面可用 useSeoMeta 覆盖
+            title: 'Nuxt LearnHub',
+            htmlAttrs: { lang: 'zh-CN' },
+            meta: [
+                { name: 'description', content: 'Nuxt 4 实战学习笔记应用' },
+                { name: 'viewport', content: 'width=device-width, initial-scale=1' }
+            ],
+            link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }]
+        }
+    },
+    devtools: { enabled: true },
+    compatibilityDate: '2025-07-15'
+})
+```
+
+> 运行方式：`cd app && npm run dev`；「查看网页源代码」可在 `<head>` 中看到上述默认标签已被 SSR 输出。
+
+```vue
+<!-- 文件: app/pages/notes/[id].vue -->
+<script setup lang="ts">
+const route = useRoute()
+// 根据动态路由参数拉取笔记详情
+const { data: note } = await useFetch(`/api/notes/${route.params.id}`)
+
+// 动态 SEO：随数据变化，useSeoMeta 类型安全，标题/描述/分享卡片一站搞定
+useSeoMeta({
+    title: () => note.value ? `${note.value.title} · Nuxt LearnHub` : '笔记详情',
+    description: () => note.value?.summary ?? 'Nuxt 学习笔记详情页',
+    ogTitle: () => note.value?.title,
+    ogDescription: () => note.value?.summary,
+    ogType: 'article'
+})
+</script>
+
+<template>
+    <article v-if="note">
+        <h1>{{ note.title }}</h1>
+        <p>{{ note.summary }}</p>
+    </article>
+</template>
+```
+
+> 运行方式：`cd app && npm run dev` 后访问 `/notes/1`，「查看网页源代码」中 `<title>` 与 `og:*` 已按该笔记内容渲染；切到别的笔记再返回，客户端导航时 head 会自动更新。
+
+## 最佳实践
+
+- **插件保持轻量**：插件在每次启动（含 SSR 每个请求的服务端环境初始化）时执行，重计算应推迟到组合式函数或事件钩子中，避免拖慢首屏。
+- **用数字前缀管理顺序而非依赖隐式排序**：`01.`、`02.` 让执行先后一目了然；需要更细粒度控制时可用对象写法的 `enforce: 'pre' | 'post'`。
+- **全局助手一律走 `provide`**：不要往 `globalThis` 上挂变量；`provide` 注入的 `$xxx` 自带类型提示（Nuxt 会生成对应类型），且 SSR 安全。
+- **优先 `useSeoMeta` 而非手写 meta 数组**：它有完整的 TypeScript 类型与 IDE 补全，字段名写错会立刻报错，还能自动处理标签去重。
+- **不可信内容只走 `useHeadSafe`**：它把可注入的标签/属性收敛到白名单，是渲染用户输入时防注入的默认选择。
+- **模块优先于手写集成**：接新能力先查是否有现成模块（`nuxi module add xxx`），模块帮你处理构建期接线，比手动配 Vite 插件省心且可升级。
+
+## 常见问题
+
+### Q：插件里 `return { provide: { api } }` 之后，模板和脚本里分别怎么用？
+
+A：脚本中用 `const { $api } = useNuxtApp()` 或插件参数 `nuxtApp.$api`；模板中可直接写 `{{ $api }}` 或在事件处理里引用，`$` 前缀是 Nuxt 自动加的约定。
+
+### Q：`.client.ts` 插件里 `console.log` 没输出，是为什么？
+
+A：先确认文件确实在 `app/plugins/` 下（Nuxt 4 源码目录是 `app/`）；其次 SSR 首屏时该日志只会出现在浏览器控制台，不会出现在终端——终端里的是服务端输出。
+
+### Q：`useHead` 和 `useSeoMeta` 该选哪个？
+
+A：设置 title/description/og 等标准 SEO 字段用 `useSeoMeta`（类型安全）；需要管理 `link`、`script`、`style` 或非标准标签时用 `useHead`，二者可在同一组件中混用。
+
+### Q：站点地图和 robots.txt 要手写吗？
+
+A：不用。安装 `@nuxtjs/sitemap` 模块即可自动生成 `sitemap.xml`（动态路由可配置数据源），robots.txt 也有对应的社区模块处理，一行 `nuxi module add` 的事。
+
+## 小结
+
+- `app/plugins/` 自动注册插件，`defineNuxtPlugin` 定义，`.client`/`.server` 后缀控制运行端，数字前缀控制执行顺序。
+- `return { provide: { api } }` 是注入全局助手的标准姿势，通过 `useNuxtApp().$api` 或模板 `$api` 消费。
+- 模块是构建期扩展，`modules: ['@pinia/nuxt']` 接入生态，`nuxi module add` 一键安装配置。
+- SEO 三件套：`app.head` 管全站默认、`useHead` 管通用标签、`useSeoMeta` 管类型安全的核心字段；不可信输入交给 `useHeadSafe`。
+- 详情页把 `useSeoMeta` 写成函数式取值，SEO 信息即可随数据动态更新。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-7" target="_blank" rel="noopener">EP.07 工程化</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 为什么 API 客户端插件建议命名为 `02.api.ts` 而不是 `api.ts`？</b></summary>
+
+Nuxt 按文件名排序执行插件，数字前缀让执行顺序显式可控。`01.` 里的基础设施（如日志、鉴权初始化）先跑，`02.api.ts` 就能安全依赖它们，避免隐式顺序在重构时被打乱。
+
+</details>
+
+<details>
+<summary><b>2. 在 `&lt;script setup&gt;` 中如何拿到插件 `provide` 的 `$api`？模板中呢？</b></summary>
+
+脚本中：`const { $api } = useNuxtApp()`（或在其他插件中用 `nuxtApp.$api`）；模板中直接以 `$api` 引用即可，Nuxt 会自动把 provide 的助手暴露给模板。
+
+</details>
+
+<details>
+<summary><b>3. 详情页想让 `&lt;title&gt;` 随异步数据变化，推荐怎么做？</b></summary>
+
+用 `useSeoMeta` 并以函数形式取值，例如 `title: () => note.value?.title`。数据到达后函数重新求值，head 自动更新，且 SSR 首屏就能输出正确标签。
+
+</details>
+
+
+---
+
+<!-- 来源：14-typescript-testing.md -->
+
+# 14. TypeScript 与测试
+
+> 本章示例：`tsconfig.json`、`shared/types/note.ts`、`vitest.config.ts`、`tests/format.test.ts`、`app/pages/notes/index.vue`
+> 运行方式：`cd app && npm install && npm run typecheck && npm test`；开发期类型生成用 `npx nuxi prepare`
+
+## 概念解析
+
+**Nuxt 4 的类型是「生成出来的」**。你在编辑器里看到 `useFetch`、`defineNuxtConfig`、自动导入的组件类型全都带补全，并不是装了什么类型包，而是 Nuxt 在 `.nuxt/` 目录下生成了一整套类型声明。根目录的 `tsconfig.json` 只有一行 `extends: './.nuxt/tsconfig.json'`，真正的配置由 `.nuxt/` 下拆分的多个 tsconfig 组成——`tsconfig.app.json`（应用代码）、`tsconfig.server.json`（Nitro 服务端）、`tsconfig.shared.json`（共享代码）、`tsconfig.node.json`（nuxt.config 等 Node 侧文件），通过 TypeScript 的「项目引用（Project References）」串起来，让每一侧都有精确隔离的类型环境。
+
+**两个命令管整个类型工作流**：`nuxi prepare` 生成/更新 `.nuxt/`（克隆模板或改了配置后跑一次，IDE 即刻满血）；`nuxi typecheck` 底层调用 `vue-tsc` 做全量类型检查，输出非零退出码，可直接挂进 CI。数据获取层面，`useFetch<Note[]>` 用泛型标注返回类型；更妙的是请求本站 `server/api` 路由时，Nuxt 能从 `defineEventHandler` 的返回值自动推断出响应类型，泛型经常可以省掉。
+
+**测试建议分层**：最底层是纯函数（`app/utils/`、`shared/` 里的工具），用 vitest 直接跑，毫秒级、零环境依赖；往上是需要 Nuxt 运行时（自动导入、插件、组件渲染）的测试，用官方 `@nuxt/test-utils` 提供的 Nuxt 环境；最顶层是端到端（`@nuxt/test-utils` 的 e2e setup 起真实服务跑浏览器断言）。投入产出比最高的永远是纯函数单测，应作为测试主力的第一层。
+
+## 典型应用场景
+
+- **CI 卡点**：流水线里 `nuxi typecheck` + `vitest run`，类型错误或测试失败直接拦下合并。
+- **跨端共享类型**：`shared/types/note.ts` 定义 `Note` 接口，服务端 handler 与前端页面都 `import type { Note } from '#shared/types/note'`，改字段时两侧同时报错。
+- **接口类型自动对齐**：前端 `useFetch('/api/notes')` 的 `data` 类型随服务端 handler 返回值变化，后端改结构前端立刻报类型错。
+- **工具函数回归防护**：`formatDate` 这类格式化函数边界多（无效日期、时区、空值），用参数化用例钉死行为。
+- **组件/Nuxt 环境冒烟**：用 `@nuxt/test-utils` 验证页面在真实 Nuxt 上下文中能渲染、关键文案出现。
+
+## 完整代码示例
+
+```json
+// 文件: tsconfig.json
+{
+    "extends": "./.nuxt/tsconfig.json"
+}
+```
+
+> 运行方式：先执行 `cd app && npx nuxi prepare` 生成 `.nuxt/` 类型目录（该 tsconfig 位于项目根的 app 工程内），再开 IDE 或运行 `npm run typecheck`。
+
+```ts
+// 文件: shared/types/note.ts
+// 共享类型：前端组件与服务端 handler 共同引用 (#shared 别名指向 shared/ 目录)
+export interface Note {
+    id: number
+    title: string
+    summary: string
+    content: string
+    tags: string[]
+    createdAt: string
+    updatedAt: string
+}
+```
+
+> 运行方式：在任意页面写 `import type { Note } from '#shared/types/note'`，然后 `useFetch<Note[]>('/api/notes')` 即可获得完整的类型推断与补全。
+
+```ts
+// 文件: vitest.config.ts
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+    test: {
+        // 纯函数单测用 node 环境即可，跑得快、无 DOM 开销
+        environment: 'node',
+        include: ['tests/**/*.test.ts']
+    }
+})
+```
+
+> 运行方式：`cd app && npm test`（即 `vitest run`），一次性跑完 `tests/` 下全部用例；开发期可用 `npx vitest` 进入 watch 模式。
+
+```ts
+// 文件: tests/format.test.ts
+import { describe, expect, it } from 'vitest'
+// 被测对象：app/utils/format.ts 中的纯函数（Nuxt 会自动导入，测试里需显式 import）
+import { formatDate } from '../app/utils/format'
+
+describe('formatDate', () => {
+    it('将 ISO 日期格式化为 YYYY-MM-DD', () => {
+        expect(formatDate('2026-10-18T08:00:00.000Z')).toBe('2026-10-18')
+    })
+
+    it('空字符串返回占位符', () => {
+        expect(formatDate('')).toBe('-')
+    })
+
+    it('非法日期不抛异常，返回占位符', () => {
+        expect(formatDate('not-a-date')).toBe('-')
+    })
+})
+```
+
+> 运行方式：`cd app && npm test`；三个用例应全部通过，改动 `formatDate` 行为时用例会立刻变红。
+
+```vue
+<!-- 文件: app/pages/notes/index.vue -->
+<script setup lang="ts">
+import type { Note } from '#shared/types/note'
+
+// 泛型标注：data 被推断为 Ref<Note[] | null>
+// 若服务端 handler 返回值有类型，useFetch('/api/notes') 可自动推断，泛型可省略
+const { data: notes, status } = await useFetch<Note[]>('/api/notes')
+</script>
+
+<template>
+    <section>
+        <p v-if="status === 'pending'">加载中…</p>
+        <ul v-else>
+            <!-- notes 内的每一项都有 Note 的完整类型提示 -->
+            <li v-for="note in notes" :key="note.id">{{ note.title }}</li>
+        </ul>
+    </section>
+</template>
+```
+
+> 运行方式：`cd app && npm run typecheck`；把模板里的 `note.title` 改成 `note.titel` 会立即报类型错误，验证类型链路生效。
+
+## 最佳实践
+
+- **克隆后第一件事跑 `nuxi prepare`**：`.nuxt/` 不入库，没有它 IDE 会把所有自动导入标红；`npm install` 的 postinstall 钩子通常会自动执行，但手动跑一次最稳。
+- **CI 必挂 `nuxi typecheck`**：类型检查不占本地开发节奏（IDE 已实时提示），但必须成为合并前的硬门槛，`package.json` 中配好 `"typecheck": "nuxi typecheck"`。
+- **跨端类型只放 `shared/`**：`#shared` 别名同时被 app 与 server 两侧识别，避免前端 import 服务端文件这类单向泄漏。
+- **测试金字塔：纯函数单测优先**：`app/utils/`、`shared/` 的纯逻辑用 vitest 全覆盖；需要 Nuxt 环境的（自动导入、挂载组件）再上 `@nuxt/test-utils/module`；跨页关键流程才写 e2e（`@nuxt/test-utils` 的 `setup({ server: true, browser: true })`）。
+- **善用自动推断，少写重复泛型**：请求本站 API 时让 `useFetch` 从 handler 返回值推断类型；只有请求外部接口时才显式写泛型，避免前后端类型写两遍导致漂移。
+
+## 常见问题
+
+### Q：IDE 里 `useFetch` 等全部报「找不到名称」，是哪里坏了？
+
+A：十有八九是 `.nuxt/` 类型没生成或过期。执行 `npx nuxi prepare` 重新生成，然后重启编辑器的 TS 服务（VS Code：`Restart TS Server`）即可恢复。
+
+### Q：`nuxi typecheck` 报缺少依赖怎么办？
+
+A：`typecheck` 底层是 `vue-tsc`，需要项目里安装 `typescript` 与 `vue-tsc` 两个开发依赖：`npm i -D typescript vue-tsc`，之后再跑 `npm run typecheck`。
+
+### Q：测试里为什么不能直接用自动导入的 `formatDate`？
+
+A：自动导入是 Nuxt 构建期做的转换，纯 vitest（node 环境）不经过这套管线，所以测试文件要显式 `import { formatDate } from '../app/utils/format'`；想要自动导入生效需接入 `@nuxt/test-utils` 的 Nuxt 环境。
+
+### Q：`@nuxt/test-utils` 具体怎么接入？
+
+A：vitest 配置改用 `@nuxt/test-utils/config` 的 `defineVitestConfig`，并在 `nuxt.config.ts` 的 `modules` 加 `@nuxt/test-utils/module`，即可用 `mountSuspended` 等 API 在真实 Nuxt 环境测组件；e2e 场景用其 `setup()` 起真实服务配合浏览器断言。入门阶段建议先把纯函数单测做扎实。
+
+## 小结
+
+- Nuxt 4 类型体系由 `.nuxt/` 生成，根 `tsconfig.json` 仅 `extends './.nuxt/tsconfig.json'`，内部按 app/server/shared/node 拆分为项目引用。
+- `nuxi prepare` 生成类型、`nuxi typecheck`（vue-tsc）做全量检查并接入 CI。
+- 自动导入的类型来自 `.nuxt/types/`，`useFetch<Note[]>` 泛型与 handler 返回值自动推断双管齐下。
+- 前后端共享类型放 `shared/`，用 `#shared/types/note` 别名引用。
+- 测试分层：vitest 纯函数单测打底，`@nuxt/test-utils` 覆盖 Nuxt 环境与 e2e。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-7" target="_blank" rel="noopener">EP.07 工程化</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 为什么根 `tsconfig.json` 只有一行 `extends` 还能让编辑器认识所有自动导入？</b></summary>
+
+因为它继承的是 `.nuxt/tsconfig.json`。`nuxi prepare` 会在 `.nuxt/` 下生成包含全部自动导入声明的类型文件与拆分后的项目引用配置，编辑器顺着 extends 链就能解析到所有类型。
+
+</details>
+
+<details>
+<summary><b>2. 请求本站 `server/api/notes` 时，为什么 `useFetch` 的泛型经常可以省略？</b></summary>
+
+Nuxt 会为内部 API 路由生成类型映射，从 `defineEventHandler` 的返回值推断响应类型并挂到 `useFetch` 的推断链路上；handler 改了返回结构，调用处类型随之更新。
+
+</details>
+
+<details>
+<summary><b>3. 为什么建议把 `formatDate` 这类函数的测试放在纯 vitest 而不是 `@nuxt/test-utils` 环境？</b></summary>
+
+纯函数不依赖 Nuxt 运行时，node 环境的 vitest 启动快、反馈即时、无环境噪音；`@nuxt/test-utils` 要启动 Nuxt 环境，成本高，应留给真正需要自动导入、组件挂载或路由的测试。
+
+</details>
+
+
+---
+
+<!-- 来源：15-build-prerender.md -->
+
+# 15. 构建与预渲染策略
+
+> 本章示例：`app/nuxt.config.ts`、`package.json` 等
+> 运行方式：`cd app && npm install && npm run build && npm run preview`；全静态站点用 `npm run generate` 后查看 `.output/public`
+
+## 概念解析
+
+**`nuxi build` 的产物是自包含的 `.output/` 目录**，这是理解 Nuxt 部署的关键。里面主要分两块：`server/index.mjs` 是 Nitro 打包后的服务端入口（内嵌了渲染器、API 路由与中间件，一个 Node 进程即可跑起来）；`public/` 是可直接交给 CDN 的静态资源（JS/CSS 产物、图片、`public/` 目录原样拷贝）。整个 `.output/` 不依赖源码与 node_modules 即可运行，拷贝到任何有 Node 的环境 `node .output/server/index.mjs` 就能上线。
+
+**Nuxt 4 的渲染不是全站一刀切，而是按路由定制的**。`routeRules` 让你对每类路径声明策略：`ssr: false` 让某子树纯客户端渲染（如后台管理）；`prerender: true` 在构建时生成静态 HTML；`swr: 3600`（秒）启用 stale-while-revalidate——命中缓存直接返回、后台异步再生；`isr: 3600` 是增量静态再生（ISR），等价语义，让内容页在静态与新鲜之间取得平衡。此外还有 `headers`（缓存与响应头）、`redirect`、`cors` 等规则，全部由 Nitro 在边缘/服务端层统一执行。
+
+**`nuxi generate` 是全静态预渲染**：Nitro 从入口页开始爬取页面中的链接（`nitro.prerender.crawlLinks`）自动发现路由，逐个渲染成 HTML 落到 `.output/public/`，产出的纯静态文件可丢到任意静态托管。动态路由爬取不到参数时，用 `nitro.prerender.routes` 显式给出清单。预渲染还会做 **payload 提取**：页面里 `useFetch`/`useAsyncData` 的数据被单独抽成 `_payload.json`，客户端导航时直接取数据文件而不是重新请求 API，静态站点也能秒开二级页面。**构建目标由 Nitro preset 决定**：默认 `node-server`，用 `NITRO_PRESET` 环境变量切换为 `static`、`vercel`、`cloudflare-pages` 等，同一份代码产出对应平台的最优形态。
+
+## 典型应用场景
+
+- **营销页/文档站全静态**：`nuxi generate` 一把梭，输出扔对象存储或 GitHub Pages，零服务器成本。
+- **后台管理纯客户端**：`routeRules` 里 `'/admin/**': { ssr: false }`，后台不需要 SEO，省掉服务端渲染开销、规避鉴权态的水合问题。
+- **内容站 ISR**：`/notes/**` 配 `isr: 3600`，一小时内的访问全部命中静态缓存，编辑更新最多延迟一小时生效，流量洪峰打在缓存上而不是数据库上。
+- **老链接迁移**：`'/old-notes/:id': { redirect: { to: '/notes/:id', statusCode: 301 } }`，在服务端层做 301，SEO 权重平滑过渡。
+- **静态资源长缓存**：`/_nuxt/**` 文件指纹化，配 `headers` 输出 `immutable` 缓存头，回访用户几乎零下载。
+
+## 完整代码示例
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    modules: ['@pinia/nuxt'],
+    css: ['~/assets/css/main.css'],
+    runtimeConfig: {
+        apiSecret: 'dev-secret',
+        public: { siteName: 'Nuxt LearnHub' }
+    },
+    routeRules: {
+        // 后台管理：纯客户端渲染，无 SEO 需求
+        '/admin/**': { ssr: false },
+        // 笔记详情：ISR，3600 秒（1 小时）内命中缓存，过期后台再生
+        '/notes/**': { isr: 3600 },
+        // 等价写法：swr: 3600，stale-while-revalidate 语义
+        '/about': { swr: 3600 },
+        // 首页构建期直接预渲染为静态 HTML
+        '/': { prerender: true },
+        // 构建产物带指纹，放心上 immutable 长缓存
+        '/_nuxt/**': {
+            headers: { 'cache-control': 'public, max-age=31536000, immutable' }
+        },
+        // 老路径 301 迁移到新路径
+        '/old-notes': { redirect: { to: '/notes', statusCode: 301 } },
+        // 对外开放接口单独放开跨域
+        '/api/public/**': { cors: true }
+    },
+    nitro: {
+        prerender: {
+            // generate 时爬取页面链接自动发现路由
+            crawlLinks: true,
+            // 动态路由爬不到的参数，显式列出
+            routes: ['/notes/1', '/notes/2', '/sitemap.xml']
+        }
+    },
+    devtools: { enabled: true },
+    compatibilityDate: '2025-07-15'
+})
+```
+
+> 运行方式：`cd app && npm run build && npm run preview` 后逐个访问 `/`、`/about`、`/notes/1`、`/admin` 对比渲染行为；`npm run generate` 后查看 `.output/public/` 下生成的 HTML 与 `_payload.json`。
+
+```json
+// 文件: package.json
+{
+    "scripts": {
+        "dev": "nuxi dev",
+        "build": "nuxi build",
+        "generate": "nuxi generate",
+        "preview": "nuxi preview",
+        "typecheck": "nuxi typecheck",
+        "test": "vitest run"
+    }
+}
+```
+
+> 运行方式：`npm run build` 产出 `.output/`；`npm run generate` 产出全静态 `.output/public/`；`npm run preview` 在本地以生产模式预览构建产物。
+
+```bash
+# 文件: 构建命令速查.sh
+# 默认 Node 服务端预设，产物 .output/（含 server 与 public）
+npm run build
+
+# 全静态预渲染，等价于 NITRO_PRESET=static 的 build
+npm run generate
+
+# 用环境变量切换 Nitro 预设（示例：静态预设）
+NITRO_PRESET=static npx nuxi build
+```
+
+> 运行方式：在 `app/` 目录逐条执行；最后一行演示 `NITRO_PRESET` 的用法，实际部署平台（vercel 等）通常自动探测，无需手动设置。
+
+## 最佳实践
+
+- **先定默认策略，再用 routeRules 做例外**：整站 SSR 打底，只对明确受益的路径开 `prerender`/`isr`/`ssr: false`，规则越克制，缓存行为越容易推理。
+- **能爬就不手写**：预渲染路由优先依赖 `crawlLinks` 自动发现；只有纯动态路由（如 `/notes/[id]`）且页面不被任何入口链接到时，才在 `nitro.prerender.routes` 显式枚举（数据多时可从 CMS/数据库在构建钩子中生成该列表）。
+- **`swr`/`isr` 的 ttl 按内容更新频率取值**：分钟级更新给 60~300 秒，日更内容给 3600~86400 秒；ttl 越短源站压力越大，越长内容越「陈」。
+- **`/_nuxt/**` 一定配 immutable**：构建产物文件名含内容哈希，永不过期也安全，这是最划算的一条缓存规则。
+- **重定向放在 routeRules 而不是页面里**：Nitro 层 301 比组件内 `navigateTo` 快且不闪屏，搜索引擎也更友好。
+- **构建后必跑 `nuxi preview`**：它在本地以真实 `.output/` 起服务，能在上线前暴露「dev 正常、build 异常」的环境差异。
+
+## 常见问题
+
+### Q：`nuxi generate` 之后动态路由 `/notes/3` 是 404，为什么？
+
+A：`crawlLinks` 只能发现被页面链接到的路由。`/notes/3` 若没有任何入口页链接它，就不会被预渲染——把它加进 `nitro.prerender.routes`（或在列表页确保有链接）再重新 generate。
+
+### Q：`swr: 3600` 和 `isr: 3600` 有什么区别？
+
+A：在 Nuxt/Nitro 语义里二者都是「TTL 内返回缓存、过期后后台再生」的缓存规则，`isr` 是面向 Vercel ISR 语义起的别名。普通项目任选其一即可，团队统一用一种写法避免歧义。
+
+### Q：`ssr: false` 的页面打开为什么有一瞬间空白？
+
+A：纯客户端页面首屏 HTML 不含内容，要等 JS 下载执行后才渲染。可在 `app/spa-loading-template.html` 自定义加载占位；面向 SEO 的页面不要用它。
+
+### Q：payload 提取出来的 `_payload.json` 有什么用？
+
+A：预渲染页面的异步数据被抽成独立 JSON，客户端路由切换到该页时直接取这个静态文件，不再请求服务端 API，静态托管下也能获得与 SSR 一致的秒开体验。
+
+## 小结
+
+- `nuxi build` 产出 `.output/`：`server/index.mjs`（Node 入口）+ `public/`（静态资源），自包含可直接运行。
+- `routeRules` 按路径定制渲染：`ssr: false`、`prerender: true`、`swr`/`isr: 秒数`、`headers`、`redirect`、`cors`。
+- `nuxi generate` 全静态预渲染，`crawlLinks` 自动发现路由，`nitro.prerender.routes` 补齐动态路由。
+- payload 提取生成 `_payload.json`，静态站客户端导航免重取数据。
+- `NITRO_PRESET` 决定构建目标（node-server/static/vercel/netlify/cloudflare-pages），多数平台自动探测。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-8" target="_blank" rel="noopener">EP.08 构建部署</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. `.output/` 目录里两个核心部分各是什么，为什么说它是「自包含」的？</b></summary>
+
+`server/index.mjs` 是 Nitro 打包后的服务端入口，`public/` 是静态资源目录。`.output/` 运行不依赖源码与 node_modules，拷到任意有 Node 的环境执行 `node .output/server/index.mjs` 即可启动。
+
+</details>
+
+<details>
+<summary><b>2. 想让笔记详情页「一小时内访问全走静态缓存、过期自动再生」，routeRules 怎么写？</b></summary>
+
+`'/notes/**': { isr: 3600 }`（或 `swr: 3600`，单位秒）。命中期内直接返回缓存副本，过期后后台再生新版本，源站压力与内容新鲜度兼得。
+
+</details>
+
+<details>
+<summary><b>3. `nuxi generate` 后新增的一篇笔记页面 404，最可能的原因与两种解法？</b></summary>
+
+原因：`crawlLinks` 没发现这条动态路由（没有入口链接到它）。解法一：在列表页确保渲染了到该页的 `<NuxtLink>`；解法二：把路径加进 `nitro.prerender.routes` 显式预渲染列表后重新 generate。
+
+</details>
+
+
+---
+
+<!-- 来源：16-deploy.md -->
+
+# 16. 部署上线全攻略
+
+> 本章示例：`app/nuxt.config.ts`、`Dockerfile`、`.github/workflows/deploy.yml` 等
+> 运行方式：`cd app && npm install && npm run build && node .output/server/index.mjs`（自托管）；静态路径用 `npm run generate`
+
+## 概念解析
+
+**Nuxt 应用的部署形态由 Nitro preset 决定，同一份代码有三条主流路径**。路径一：**Node 自托管**——默认 `node-server` 预设，`nuxi build` 之后 `node .output/server/index.mjs` 就是一个完整生产服务（页面 SSR + API 路由 + 静态资源全包），端口与监听地址用 `NITRO_PORT`/`NITRO_HOST` 环境变量控制；生产上配 PM2 做进程守护，或打进 Docker 镜像交给容器平台。这条路径能力最全，适合有服务端 API、需要 ISR/SWR 的项目。
+
+路径二：**纯静态托管**——`nuxi generate` 预渲染出 `.output/public/` 一目录静态文件，丢给 Nginx、对象存储（OSS/COS/S3 + CDN）或 GitHub Pages 皆可，零服务器运维。注意部署到「项目站」子路径（如 `https://user.github.io/repo/`）时，要设置 `app.baseURL` 为 `/repo/`，否则资源链接全部 404。路径三：**Serverless/边缘**——Nitro 为 vercel、netlify、cloudflare-pages 等平台内置预设，这些平台大多能自动识别 Nuxt 项目实现「零配置」部署，特殊场景用 `NITRO_PRESET=cloudflare-pages` 之类的环境变量显式指定，构建产物自动适配该平台的函数/边缘运行时。
+
+**环境变量与 `runtimeConfig` 是生产配置的正解**。`nuxt.config.ts` 里的 `runtimeConfig` 只是默认值：运行时可用 `NUXT_` 前缀环境变量覆盖——私有键 `apiSecret` 对应 `NUXT_API_SECRET`，`public` 下的 `siteName` 对应 `NUXT_PUBLIC_SITE_NAME`。关键区别在于「构建时 vs 运行时」：runtimeConfig 的覆盖发生在**服务启动那一刻**（运行时），同一个构建产物可以带着不同环境变量跑在预发/生产两套环境；这正是「一次构建、多处部署」的基础。最后，**CI/CD 把质量关卡自动化**：GitHub Actions 里 checkout → setup-node → `npm ci` → `typecheck` → `test` → `build` → 部署，每一步失败即中断，人工只做代码评审。
+
+## 典型应用场景
+
+- **公司自有服务器/云主机**：`node .output/server/index.mjs` + PM2 守护 + Nginx 反代，全栈能力完整保留。
+- **容器化交付**：多阶段 Dockerfile 把构建与运行分离，最终镜像只含 `.output/`，体积小吃水浅。
+- **文档/营销站**：`nuxi generate` 全静态输出，对象存储 + CDN 承载，成本趋近于零。
+- **快速上线的个人项目**：GitHub 仓库直连 Vercel/Netlify，push 即部署，预览环境自动开。
+- **多环境配置**：同一镜像用 `NUXT_API_SECRET`、`NUXT_PUBLIC_SITE_NAME` 在预发/生产间切换配置，无需重新构建。
+
+## 完整代码示例
+
+```dockerfile
+# 文件: Dockerfile
+# ---- 构建阶段：安装依赖并产出 .output/ ----
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+# ci 严格按 lockfile 安装，保证可复现
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# ---- 运行阶段：只拷产物，镜像最小化 ----
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+# .output/ 自包含，无需 node_modules 与源码
+COPY --from=build /app/.output ./.output
+EXPOSE 3000
+ENV NITRO_PORT=3000 NITRO_HOST=0.0.0.0
+CMD ["node", ".output/server/index.mjs"]
+```
+
+> 运行方式：在项目根执行 `docker build -t nuxt-learnhub . && docker run -p 3000:3000 nuxt-learnhub`，访问 `http://localhost:3000`。
+
+```yaml
+# 文件: .github/workflows/deploy.yml
+name: deploy
+on:
+    push:
+        branches: [main]
+
+jobs:
+    build-and-deploy:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: npm
+            # 严格按 lockfile 安装
+            - run: npm ci
+            # 质量关卡：类型检查 + 单元测试，失败即终止
+            - run: npm run typecheck
+            - run: npm test
+            - run: npm run build
+            # 部署一步带过：按目标平台替换，例如——
+            # Vercel: npx vercel deploy --prod --token ${{ secrets.VERCEL_TOKEN }}
+            # 自托管: rsync .output/ 到服务器后 pm2 restart nuxt-app
+            - name: deploy
+              run: echo '替换为你的部署命令（见注释示例）'
+```
+
+> 运行方式：推送到 `main` 分支即触发；在仓库 Settings → Secrets 中配置部署所需的凭据，流水线页可查看每步日志。
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    modules: ['@pinia/nuxt'],
+    runtimeConfig: {
+        // 私有配置：只在服务端可见，生产用 NUXT_API_SECRET 覆盖
+        apiSecret: 'dev-secret',
+        public: {
+            // 公开配置：会打进客户端包，生产用 NUXT_PUBLIC_SITE_NAME 覆盖
+            siteName: 'Nuxt LearnHub'
+        }
+    },
+    // 部署到子路径（如 GitHub Pages 项目站）时取消注释，或设 NUXT_APP_BASE_URL
+    // app: { baseURL: '/nuxt-learnhub/' },
+    devtools: { enabled: true },
+    compatibilityDate: '2025-07-15'
+})
+```
+
+> 运行方式：`npm run build` 后用环境变量覆盖启动：`NUXT_API_SECRET=prod-xxx NUXT_PUBLIC_SITE_NAME=LearnHub node .output/server/index.mjs`，页面中 `useRuntimeConfig()` 读到的即为覆盖后的值。
+
+## 最佳实践
+
+- **进程必须有人看护**：裸 `node` 进程挂了不会自愈。自托管至少用 PM2（`pm2 start .output/server/index.mjs --name nuxt-app && pm2 save`），或交给 systemd / 容器编排。
+- **镜像只装产物**：多阶段构建中运行阶段只 `COPY .output/`，不带源码与 devDependencies，镜像小、攻击面小、启动快。
+- **密钥永远不入库**：`apiSecret` 这类值在代码里只留开发占位符，生产值通过 `NUXT_API_SECRET` 等环境变量注入；`.env` 加进 `.gitignore`，CI 凭据放平台 Secrets。
+- **分清构建时与运行时**：`runtimeConfig` 的覆盖发生在服务启动时（运行时），意味着「一次构建产物 + 不同环境变量 = 多环境部署」；反之写死在代码或 `app.config` 里的值改一次就要重新构建。
+- **静态子路径部署先配 baseURL**：GitHub Pages 项目站等子路径场景，设 `app.baseURL`（或 `NUXT_APP_BASE_URL`），否则所有 `/_nuxt/` 资源请求打到根路径 404。
+- **上线前过一遍检查清单**：`compatibilityDate` 已固定、`nuxi typecheck` 与测试在 CI 全绿、提供 `error.vue` 兜底页、接入监控与日志采集（至少进程存活告警 + 错误上报）。
+
+## 常见问题
+
+### Q：三条部署路径怎么选？
+
+A：需要 SSR、服务端 API 或 ISR 的选 Node 自托管（或容器平台）；内容站、无动态服务的选纯静态托管；想要免运维、自动扩缩与全球边缘的选 Vercel/Netlify/Cloudflare Pages——三者用的都是同一份 `nuxi build`/`generate` 产物，切换成本低。
+
+### Q：改了环境变量为什么不生效？
+
+A：`runtimeConfig` 的环境变量覆盖发生在**进程启动时**，改完必须重启服务（`pm2 restart` / 重启容器）；另外变量名必须严格匹配 `NUXT_` 前缀约定——`apiSecret` ↔ `NUXT_API_SECRET`、`public.siteName` ↔ `NUXT_PUBLIC_SITE_NAME`。
+
+### Q：部署到 GitHub Pages 后页面空白、控制台一片 404？
+
+A：项目站部署在 `/<repo>/` 子路径下，而默认 `baseURL` 是 `/`。设置 `app.baseURL: '/<repo>/'`（或环境变量 `NUXT_APP_BASE_URL`），并用 `nuxi generate` 的产物发布，资源路径即会带上前缀。
+
+### Q：PM2 启动命令具体怎么写？
+
+A：构建完成后在 `app/` 目录执行 `pm2 start .output/server/index.mjs --name nuxt-app`，`pm2 save` 保存进程清单、`pm2 startup` 生成开机自启脚本；端口冲突时用 `NITRO_PORT=3100 pm2 start ...` 指定。
+
+## 小结
+
+- Node 自托管：`node .output/server/index.mjs` 即完整服务，`NITRO_PORT`/`NITRO_HOST` 控制监听，PM2 或 Docker 守护。
+- 纯静态：`nuxi generate` → `.output/public/` 丢任意静态托管，子路径场景牢记 `app.baseURL`。
+- Serverless/边缘：vercel/netlify/cloudflare-pages 等 Nitro 预设，多数零配置，特殊场景一行 `NITRO_PRESET`。
+- `runtimeConfig` 生产用 `NUXT_API_SECRET`、`NUXT_PUBLIC_SITE_NAME` 覆盖，发生在运行时——一次构建、多环境部署。
+- CI/CD 主线：checkout → setup-node → `npm ci` → typecheck → test → build → 部署；上线清单别漏 `compatibilityDate`、密钥隔离、`error.vue` 与监控。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-8" target="_blank" rel="noopener">EP.08 构建部署</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 为什么说 `runtimeConfig` 支持「一次构建、多环境部署」？</b></summary>
+
+因为 `NUXT_` 前缀环境变量对 `runtimeConfig` 的覆盖发生在服务启动时（运行时），而非构建时。同一个 `.output/` 产物带上不同的 `NUXT_API_SECRET` 等变量，即可跑在预发与生产环境而无需重新构建。
+
+</details>
+
+<details>
+<summary><b>2. 用 Docker 部署 Nuxt 时，运行阶段镜像里为什么只需要 `.output/`？</b></summary>
+
+`.output/` 是自包含产物：服务端入口 `server/index.mjs` 已打包好全部运行依赖，静态资源在 `public/`。运行不依赖源码与 node_modules，所以运行阶段只拷 `.output/`，镜像最小。
+
+</details>
+
+<details>
+<summary><b>3. GitHub Actions 部署流水线中，`typecheck` 和 `test` 为什么要放在 `build` 之前？</b></summary>
+
+它们是最便宜的质量关卡：类型或测试失败时立即终止，避免浪费构建时间、更避免把带病代码部署上线。构建放最后，通过后产物直接进入部署步骤。
+
+</details>
+
+
+---
+
+<!-- 来源：17-rendering-internals.md -->
+
+# 17. Nuxt 渲染内部机制
+
+> 本章示例：`app/nuxt.config.ts`、`app/pages/render/isr.vue`、`app/components/ServerClock.server.vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/render/isr` 与 `http://localhost:3000/render/hybrid`
+
+## 概念解析
+
+**Nuxt 的渲染模式不是全站开关，而是按路由逐条决策的**。面对一条新路由，先问三个问题：内容需要 SEO 吗？数据更新频率多高？页面是否强依赖用户态？答案组合出五种模式：SSR（默认，每请求服务端渲染，适合个性化与实时数据）、SSG/`prerender`（构建期生成 HTML，适合营销页与文档）、ISR/`isr: 秒数`（静态副本 + 过期后台再生，适合内容站）、SWR/`swr: 秒数`（与 ISR 同语义，命中即返回、过期异步再生）、CSR/`ssr: false`（纯客户端渲染，适合后台管理）。决策树的核心原则是：**能用静态就不用动态，能用边缘缓存就不打到渲染进程**。
+
+**Nitro 渲染管线是理解一切的骨架**。一个 SSR 请求的生命周期：`request → Nitro middleware → routeRules 匹配（缓存命中则直接短路返回）→ event handler → Vue renderToString → payload 序列化注入 → HTML 响应`。其中 `renderToString` 执行所有页面的 `async setup`，`useFetch` 的结果被收集进 payload；payload 以 `window.__NUXT__` 内联进 HTML（或预渲染时抽成独立 `_payload.json`）。理解这条管线后，「为什么水合不重复请求」「为什么 routeRules 优先于页面代码生效」就都顺理成章。
+
+**水合（hydration）是客户端 Vue 接管服务端 HTML 的过程**，它要求两端渲染结果严格一致。`hydration mismatch` 的常见来源只有三类：**时间/随机数**（`new Date()`、`Math.random()` 在两端结果不同）、**浏览器 API**（`window`、`localStorage` 服务端不存在）、**数据不一致**（服务端取的数与客户端初始态不同）。排查手段：DevTools Console 的 mismatch 警告会指出具体节点；用 `<ClientOnly>` 包裹纯客户端组件，或用 `onMounted` 延后执行，是最常用的两条止血带。
+
+**岛屿架构让水合从「整页」细化为「按组件」**。`experimental.componentIslands` 开启后，`<NuxtIsland>` 可以把某个组件单独在服务端渲染成 HTML 孤岛，客户端只水合这个岛；`.server.vue` 后缀的组件则永远只在服务端渲染、零客户端 JS 代价。这带来一种新的设计范式：**页面骨架静态化，交互热点孤岛化**，把 JS 体积精确压缩到真正需要交互的部分。
+
+**payload 提取是静态站秒开的秘密**。`experimental.payloadExtraction`（预渲染时默认启用）把页面的异步数据抽成 `_payload.json`，客户端导航到预渲染页时直接取这个 JSON 而非重新请求 API。配合 `usePayload` / `useNuxtData` 可以在代码里显式读取这份数据；理解它，就能解释「为什么 generate 出来的静态站，二级页面切换也能秒开」。
+
+## 典型应用场景
+
+- **内容站混合渲染**：首页 `prerender`、详情页 `isr: 3600`、搜索页 SSR，一个站点三种策略共存。
+- **后台管理系统**：`'/admin/**': { ssr: false }`，规避鉴权态水合问题，服务端零渲染开销。
+- **营销落地页**：全量 `prerender` + 岛屿化少量交互组件，Lighthouse 满分起步。
+- **个性化首页**：SSR + 边缘缓存 `routeRules` 的 `cache` 规则按 cookie 分组缓存。
+- **纯静态组件岛**：文章页正文 `.server.vue` 渲染，评论框单独做成 `<NuxtIsland>`。
+- **水合问题排查**：时间戳、A/B 随机分桶、UA 判定类组件统一 `<ClientOnly>` 兜底。
+
+## 完整代码示例
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    experimental: {
+        // 开启组件岛屿，允许 <NuxtIsland> 与选择性水合
+        componentIslands: true,
+        // 预渲染页面提取 payload 为独立 JSON（generate 时默认开启）
+        payloadExtraction: true
+    },
+    routeRules: {
+        // 五种模式各配一条，便于同站对比
+        '/render/ssr': { ssr: true },
+        '/render/csr': { ssr: false },
+        '/render/static': { prerender: true },
+        '/render/isr': { isr: 60 },
+        '/render/swr': { swr: 60 }
+    },
+    compatibilityDate: '2025-07-15'
+})
+```
+
+> 运行方式：`cd app && npm install && npm run dev`，逐一访问 `http://localhost:3000/render/isr` 等路由；再 `npm run build && npm run preview`，用 DevTools 的 View Source 对比五种模式首屏 HTML 的差异。
+
+```vue
+<!-- 文件: app/pages/render/isr.vue -->
+<script setup lang="ts">
+    // ISR 页：服务端渲染时间戳会被缓存 60 秒
+    // 注意：时间戳是经典 mismatch 来源，必须只在服务端生成一次
+    const { data } = await useAsyncData('isr-clock', () =>
+        $fetch<{ renderedAt: string }>('/api/hello').then(() => ({
+            renderedAt: new Date().toISOString()
+        }))
+    )
+</script>
+
+<template>
+    <main>
+        <h1>ISR 演示页</h1>
+        <p>本页 HTML 由服务端渲染于：{{ data?.renderedAt }}</p>
+        <p>60 秒内刷新该时间不变（命中缓存），过期后后台再生。</p>
+        <NuxtLink to="/render/hybrid">去看岛屿演示 →</NuxtLink>
+    </main>
+</template>
+```
+
+> 运行方式：`npm run dev` 下路由规则不生效，需 `npm run build && npm run preview` 后访问 `http://localhost:3000/render/isr`，连续刷新观察时间戳是否变化。
+
+```vue
+<!-- 文件: app/components/ServerClock.server.vue -->
+<script setup lang="ts">
+    // .server.vue 后缀：本组件只在服务端渲染，不进客户端 bundle
+    const now = new Date().toLocaleString('zh-CN')
+</script>
+
+<template>
+    <p class="server-clock">服务端时钟：{{ now }}（零客户端 JS）</p>
+</template>
+```
+
+```vue
+<!-- 文件: app/pages/render/hybrid.vue -->
+<script setup lang="ts">
+    const count = ref(0)
+</script>
+
+<template>
+    <main>
+        <h1>混合渲染：静态骨架 + 交互岛</h1>
+        <!-- 纯服务端组件，不水合、零 JS 代价 -->
+        <ServerClock />
+        <!-- 交互热点单独成岛，只水合这一块 -->
+        <NuxtIsland name="CounterBox" :props="{ initial: 0 }" />
+        <button type="button" @click="count++">页内计数 {{ count }}</button>
+    </main>
+</template>
+```
+
+> 运行方式：`npm run build && npm run preview` 后访问 `http://localhost:3000/render/hybrid`，在 DevTools Network 面板过滤 JS，确认 `ServerClock` 没有对应的客户端 chunk 下载。
+
+## 最佳实践
+
+1. **先画渲染决策树再写代码**：对每条路由按「SEO 需求 × 更新频率 × 用户态依赖」三问归类，把结论写进 `routeRules`，而不是在页面里用运行时 hack 弥补选错的模式。
+2. **mismatch 三嫌疑犯优先排查**：看到 hydration 警告，先查 `Date`/`Math.random`，再查 `window`/`localStorage`，最后查两端数据源差异；90% 的问题不出这三类。
+3. **能 `.server.vue` 就不 `<ClientOnly>`**：前者是「永不发 JS 到客户端」，后者是「发了 JS 但只在客户端跑」，性能意义完全不同，优先选前者。
+4. **payload 能 `pick` 就别全量**：`useFetch` 的 `pick`/`transform` 裁剪字段直接减小 `__NUXT__` 体积，大列表页尤其明显。
+5. **ISR 的 ttl 按业务容忍度取值**：编辑能接受多长延迟就给多长 ttl；盲目设 10 秒不如直接用 SSR，缓存命中率才是 ISR 的价值来源。
+6. **用 `nuxi preview` 验证渲染行为**：dev 模式不执行 `routeRules` 缓存与 ISR 语义，一切渲染结论以 preview/生产为准。
+
+## 常见问题
+
+### Q：`routeRules` 在 `npm run dev` 下好像没生效？
+
+A：dev 模式为了热更新速度，不执行 ISR/SWR 缓存语义（`ssr: false`、`redirect`、`headers` 等基本规则仍生效）。验证缓存行为请用 `npm run build && npm run preview`。
+
+### Q：水合 mismatch 警告里 `data-v-xxx` 节点对不上，怎么定位到具体组件？
+
+A：Console 警告会打印服务端 HTML 与客户端 VNode 的对比片段，结合 `data-v-*` 属性在源码里全局搜索即可定位组件；也可以临时在怀疑的组件外套 `<ClientOnly>` 做二分排除。
+
+### Q：`<NuxtIsland>` 里的组件能访问 `useRoute`、`useCookie` 吗？
+
+A：岛屿组件在隔离的上下文中渲染，能拿到服务端传入的 props，但不应依赖页面级的响应式状态。把岛屿当「纯函数组件」用：输入 props、输出 HTML，交互逻辑内聚在岛内部。
+
+### Q：payload 提取后 `_payload.json` 会不会暴露敏感数据？
+
+A：payload 内容就是页面 `useFetch`/`useAsyncData` 返回的数据，凡是序列化进 payload 的东西用户都能在 HTML 源码里看到——敏感数据本就不该进 payload，应在客户端二次请求或 `server` 端私有化处理。
+
+## 小结
+
+- 渲染模式按路由决策：SSR / SSG / ISR / SWR / CSR，三问法选型（SEO、更新频率、用户态）。
+- Nitro 管线：request → middleware → routeRules → renderToString → payload 注入 → HTML。
+- hydration mismatch 三大来源：时间/随机数、浏览器 API、两端数据不一致。
+- 岛屿架构：`.server.vue` 零 JS、`<NuxtIsland>` 选择性水合，静态骨架 + 交互热点。
+- payload 提取生成 `_payload.json`，静态站客户端导航免重取数据。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】一个「文章详情页，编辑每天更新几次，需要 SEO」该选哪种渲染模式，routeRules 怎么写？</b></summary>
+
+选 ISR：`'/articles/**': { isr: 3600 }`。需要 SEO 排除 CSR，更新频率低排除 SSR，需要覆盖新增文章排除纯 `prerender`；ISR 静态副本扛流量、过期后台再生，是内容站的标准答案。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】页面里 `new Date().toLocaleString()` 导致 hydration mismatch，给出两种修法并说明差异。</b></summary>
+
+修法一：把时间移进 `.server.vue` 组件或用 `useAsyncData` 在服务端取一次，客户端从 payload 复用——HTML 自带时间，零 mismatch 且零额外 JS；修法二：用 `<ClientOnly>` 包裹，服务端不渲染该片段，客户端挂载后再生成——简单但首屏缺这块内容。前者优先。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】`&lt;NuxtIsland&gt;` 与 `.server.vue` 都能减少客户端 JS，二者的本质区别是什么？</b></summary>
+
+`.server.vue` 是纯服务端组件：永远不参与水合、不发送客户端代码，适合零交互的静态片段；`<NuxtIsland>` 是选择性水合：组件在服务端渲染成孤岛 HTML，客户端只对这一小块做水合以恢复交互能力，适合「局部可交互」的热点组件。一句话：前者不要交互，后者要交互但只想付局部的 JS 成本。
+
+</details>
+
+
+---
+
+<!-- 来源：18-performance.md -->
+
+# 18. 性能优化与 Core Web Vitals
+
+> 本章示例：`app/nuxt.config.ts`、`app/plugins/web-vitals.client.ts`、`app/components/NoteCard.vue`
+> 运行方式：`cd app && npm install && npm run build && npm run preview`，浏览器访问 `http://localhost:3000/` 并用 Lighthouse 测量
+
+## 概念解析
+
+**Core Web Vitals 是 Google 定义的用户体验硬指标**，优化的所有动作都应能映射回这三个数：LCP（Largest Contentful Paint，最大内容绘制，首屏最大元素出现的时间，目标 ≤ 2.5s）主要受服务端响应、字体与图片影响；INP（Interaction to Next Paint，交互到下次绘制，目标 ≤ 200ms）反映主线程被长任务与 hydration 阻塞的程度；CLS（Cumulative Layout Shift，累积布局偏移，目标 ≤ 0.1）来自无尺寸的媒体、异步插入的内容与字体换行。测量三板斧：本地用 DevTools Performance 面板与 Lighthouse，真实用户数据用 `web-vitals` 库上报，线上体检用 PageSpeed Insights——**先测量再优化，没有数据不谈性能**。
+
+**`routeRules` 是 Nuxt 性能优化的第一杠杆**，它的缓存矩阵值得背下来：`prerender: true` 构建期产出 HTML（TTFB 趋近于零）；`isr`/`swr: 秒数` 缓存渲染结果、过期再生（兼顾新鲜与扛量）；`cache: { maxAge }` 给 API 路由加内存缓存；`headers: { 'cache-control': ... }` 控制浏览器与 CDN 缓存行为。一条经验法则：**页面级缓存用 `isr`/`swr`，API 级缓存用 `cache`，静态资源用 `headers` + 指纹文件，三者分层叠加**。
+
+**字体与图片是 LCP/CLS 的两个最大变量**。字体方面，`@nuxtjs/google-fonts` 把 Google Fonts 下载为本地资源并自动加 `preload`，`@nuxtjs/fontaine` 通过字体度量回退（font metric override）消除自定义字体加载时的布局位移，`font-display: swap` 保证文本先用回退字体渲染。图片方面，`@nuxt/image` 内置 IPX 图像处理器，`<NuxtImg>` 自动生成响应式 `srcset`、按需压缩格式（webp/avif）、配合 `loading="lazy"` 与显式 `width`/`height` 同时改善 LCP 与 CLS。
+
+**JS 体积决定 INP 与 hydration 成本**。Nuxt 提供的武器按从轻到重排序：`Lazy` 前缀组件（`<LazyNoteCard>`）推迟到进入视口才加载代码；`dynamic import`（`defineAsyncComponent`）手动控制分割点；`preloadComponents`/`prefetchComponents` 在空闲时预取即将用到的组件；第三方脚本用 `useScript`（`@nuxt/scripts`）或 `afterInteractive` 策略延后。最后用 `nuxi analyze` 生成 bundle 可视化报告，让每一次优化都有据可依。
+
+## 典型应用场景
+
+- **电商详情页 LCP 攻坚**：首图 `<NuxtImg preload>` + 字体本地化 + 描述区 `isr: 600`，LCP 从 4s 压进 2s。
+- **内容站 CLS 清零**：所有 `<img>` 换 `<NuxtImg>` 带宽高 + fontaine 度量回退，布局位移归零。
+- **仪表盘 INP 优化**：重图表组件 `Lazy` 前缀 + 数据请求移出关键路径，交互不再卡顿。
+- **落地页 bundle 瘦身**：`nuxi analyze` 定位意外引入的大依赖（如全量 lodash），改按需引入。
+- **第三方脚本治理**：统计、客服 SDK 统一 `useScript` 延迟加载，不阻塞 hydration。
+- **组件级预取**：用户悬停「下一页」时 `prefetchComponents('NotesList')`，翻页瞬时完成。
+
+## 完整代码示例
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    modules: [
+        '@nuxt/image',
+        '@nuxtjs/google-fonts',
+        '@nuxtjs/fontaine'
+    ],
+    image: {
+        // IPX 默认处理本地与远程图片，限制允许的远程域名
+        domains: ['cdn.example.com'],
+        // 统一质量与格式，自动生成 srcset
+        quality: 80,
+        format: ['webp', 'avif']
+    },
+    googleFonts: {
+        families: { Inter: [400, 600, 700] },
+        // 下载为本地资源，摆脱 fonts.googleapis.com 的第三方往返
+        download: true,
+        display: 'swap'
+    },
+    routeRules: {
+        '/': { isr: 300 },
+        // 构建产物带指纹，上 immutable 长缓存
+        '/_nuxt/**': {
+            headers: { 'cache-control': 'public, max-age=31536000, immutable' }
+        },
+        // API 级缓存与页面级缓存分层
+        '/api/notes': { cache: { maxAge: 60 } }
+    },
+    compatibilityDate: '2025-07-15'
+})
+```
+
+> 运行方式：`cd app && npm install && npm run build && npm run preview`，访问 `http://localhost:3000/` 后用 Lighthouse 跑性能分，对比优化前后的 LCP/CLS。
+
+```vue
+<!-- 文件: app/components/NoteCard.vue -->
+<script setup lang="ts">
+    import type { Note } from '#shared/types/note'
+
+    defineProps<{ note: Note }>()
+</script>
+
+<template>
+    <article class="note-card">
+        <!-- width/height 显式给出：浏览器预留空间，CLS 为零 -->
+        <!-- sizes 告诉浏览器不同视口下选哪档 srcset -->
+        <NuxtImg
+            :src="note.cover ?? '/placeholder.png'"
+            :alt="note.title"
+            width="640"
+            height="360"
+            sizes="sm:100vw md:50vw lg:640px"
+            loading="lazy"
+        />
+        <h3>{{ note.title }}</h3>
+    </article>
+</template>
+```
+
+> 运行方式：任意列表页引用 `<NoteCard>` 后，DevTools Network 面板按 Img 过滤，可看到 IPX 生成的 `/_ipx/...` 响应式图片；Performance 面板确认无布局位移记录。
+
+```ts
+// 文件: app/plugins/web-vitals.client.ts
+import { onLCP, onINP, onCLS } from 'web-vitals'
+
+export default defineNuxtPlugin(() => {
+    // 真实用户监控：上报到自建接口或分析平台
+    const report = (metric: { name: string; value: number }) => {
+        // navigator.sendBeacon 不阻塞页面卸载
+        navigator.sendBeacon('/api/vitals', JSON.stringify(metric))
+    }
+    onLCP(report)
+    onINP(report)
+    onCLS(report)
+})
+```
+
+> 运行方式：安装 `web-vitals` 后 `npm run dev`，访问 `http://localhost:3000/` 并与页面交互，在 Network 面板能看到 `/api/vitals` 的 beacon 上报（需自行添加对应 server 路由打印数据）。
+
+```bash
+# 文件: 性能分析命令速查.sh
+# 生成 bundle 可视化报告（rollup-plugin-visualizer 集成）
+npx nuxi analyze
+
+# 构建后用 preview 以生产模式本地验证
+npm run build && npm run preview
+
+# PageSpeed Insights 线上体检（部署后执行）
+# https://pagespeed.web.dev/ 输入线上 URL 即可
+```
+
+> 运行方式：`npx nuxi analyze` 会在 `.output/` 生成报告并自动打开浏览器，按 chunk 体积排序定位最大依赖。
+
+## 最佳实践
+
+1. **先测后优，指标先行**：每次优化前记录 LCP/INP/CLS 基线，优化后对比；凭直觉做的性能改动有一半是无效甚至负优化。
+2. **缓存分层而非单点**：页面 `isr`/`swr`、API `cache`、静态资源 `immutable` 三层叠加，任何一层命中都能挡掉下游压力。
+3. **图片永远是 `<NuxtImg>` + 显式宽高**：这一步同时解决 LCP（压缩、srcset）与 CLS（预留空间），是投入产出比最高的单项优化。
+4. **`Lazy` 前缀用在「首屏以下」**：视口内组件保持同步加载避免闪烁，视口外的重组件（图表、富文本、地图）一律 `Lazy`。
+5. **第三方脚本全部延后**：统计、客服、广告 SDK 用 `useScript` 或 `requestIdleCallback` 加载，绝不让它们在 hydration 关键路径上。
+6. **每月跑一次 `nuxi analyze`**：依赖会随需求悄悄膨胀，把 bundle 审查纳入迭代例行事项，超 200KB（gzip）的 chunk 必须能说清来历。
+
+## 常见问题
+
+### Q：本地 Lighthouse 分数很高，线上真实用户数据却很差？
+
+A：本地是高性能设备 + 快速网络的「实验室数据」，PageSpeed Insights 的 CrUX 数据才是真实用户分布。重点优化 P75 分位：用 `web-vitals` 上报按设备/网络分桶，先救最差的那批用户。
+
+### Q：`<NuxtImg>` 在 `nuxi generate` 的纯静态站上能用吗？
+
+A：可以。IPX 在构建期处理图片并输出到 `.output/public`；也可用 `provider` 换成 Cloudinary、ImageKit 等托管服务，把图像处理完全外移。
+
+### Q：`isr` 和 `cache: { maxAge }` 看起来都是缓存，什么时候用哪个？
+
+A：`isr`/`swr` 缓存的是**渲染出的 HTML**（页面级），`cache` 缓存的是 **Nitro 路由的响应**（API 级）。页面用前者，接口用后者；一个 SSR 页面背后常常两者同时生效。
+
+### Q：`prefetchComponents` 和 `<NuxtLink>` 的自动 prefetch 有什么区别？
+
+A：`<NuxtLink>` 默认预取的是**目标页面的代码与 payload**（导航级），`prefetchComponents`/`preloadComponents` 针对**单个组件**（组件级）。页面内「点击才出现的重弹窗」这类场景用后者，跨页导航交给前者即可。
+
+## 小结
+
+- Core Web Vitals：LCP ≤ 2.5s、INP ≤ 200ms、CLS ≤ 0.1，先测量再优化。
+- `routeRules` 缓存矩阵：页面 `isr`/`swr`、API `cache`、静态资源 `headers` + 指纹。
+- 字体用 `@nuxtjs/google-fonts` + fontaine 本地化并消除位移；图片用 `@nuxt/image` 响应式 + 显式宽高。
+- JS 治理：`Lazy` 前缀、`useScript` 延后三方脚本、`nuxi analyze` 定期审查 bundle。
+- 预取双轨：`<NuxtLink>` 预取导航，`prefetchComponents` 预取组件。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】LCP、INP、CLS 分别度量什么，各自的目标阈值是多少？</b></summary>
+
+LCP 度量最大内容元素的绘制时间（加载速度），目标 ≤ 2.5s；INP 度量交互到下次绘制的延迟（响应性），目标 ≤ 200ms；CLS 度量累积布局偏移（视觉稳定性），目标 ≤ 0.1。三者均以真实用户数据的 P75 分位判定达标。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】一个 SSR 列表页图片导致的 CLS 高达 0.3，给出两条并行的修复措施。</b></summary>
+
+措施一：所有 `<img>` 换 `<NuxtImg>` 并显式声明 `width`/`height`（或 CSS `aspect-ratio`），让浏览器在图片下载前预留正确空间；措施二：若是自定义字体换行引发的二次位移，接入 `@nuxtjs/fontaine` 用度量匹配的回退字体占位。两者分别消除媒体与字体两类位移源。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】为什么 `routeRules` 里给 `/_nuxt/**` 配 `max-age=31536000, immutable` 是绝对安全的？</b></summary>
+
+Nuxt 构建产物的文件名包含内容哈希（如 `entry.a1b2c3d4.js`），内容一变文件名就变，旧文件永不被引用。因此可以告诉浏览器与 CDN「这份资源永远不变、不用回源验证」，回访用户静态资源零下载；若文件名不含哈希，immutable 会导致用户长期拿到过期代码，反而不安全。
+
+</details>
+
+
+---
+
+<!-- 来源：19-data-caching.md -->
+
+# 19. 数据缓存与状态一致性
+
+> 本章示例：`app/composables/useNotesCached.ts`、`app/pages/notes/admin.vue`、`app/nuxt.config.ts`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/notes`，开两个 tab 验证同步
+
+## 概念解析
+
+**Nuxt 数据缓存的第一性原理是「key 即身份」**。`useFetch` 会根据 URL + 选项自动推导 key，`useAsyncData` 使用显式 key；任何组件用同一个 key 调用，共享同一份 `data` 与同一次请求——这就是 dedupe 机制：导航时十个组件同时 `useFetch('/api/notes')`，实际只发一次请求。`useNuxtData(key)` 可以只读地拿到这份共享缓存，是跨组件同步状态的最轻方案。**选 key 就是设计缓存边界**：key 里是否包含查询参数、用户 id，决定了不同场景是共享还是隔离。
+
+**`getCachedData` 把缓存命中策略交给你**。默认每次进入页面都会重新请求，`getCachedData: (key, nuxtApp) => nuxtApp.payload.data[key] ?? nuxtApp.static.data[key]` 可以让数据在「本次会话内只取一次」。进阶写法是结合时间戳自定义 TTL：把 `{ data, fetchedAt }` 存进 `useState`，`getCachedData` 里判断新鲜度决定是否复用。这把 `useAsyncData` 从「每次必请求」升级为「可编程的客户端缓存层」，列表 → 详情 → 返回列表的场景收益最大。
+
+**Nitro storage 是服务端缓存的统一抽象**。`useStorage()` 背后是 unstorage，同一套 API 可切换 memory（默认）、redis、cloudflare-kv、fs 等驱动。`routeRules` 的 `isr`/`swr`/`cache` 本质上也是把渲染结果与响应写进 storage 挂载点（如 `cache:`、`nitro:routes:`）。理解这一点就能做两件大事：本地开发用 memory 零依赖，生产切 redis 多实例共享缓存；`nuxt.config.ts` 里 `nitro.storage` 声明挂载点，代码里 `useStorage('cache').setItem(key, value)` 手动管理。
+
+**一致性三板斧：`invalidateNuxtData`、`refreshNuxtData`、`clearNuxtData`**。`refreshNuxtData(key)` 重新执行对应 handler 拉新数据；`invalidateNuxtData(key)` 只标记失效，等下一次被使用时才重新请求（更省）；`clearNuxtData(key)` 把缓存清回初始态。三者解决的是同一个问题的不同力度：**写操作后让哪些数据变成「不可信」**。再叠加乐观更新（先改 UI 缓存、失败回滚）与多 tab 同步（`BroadcastChannel`），就构成完整的前端数据一致性工具箱。
+
+## 典型应用场景
+
+- **列表 → 详情往返**：`getCachedData` 让列表数据 5 分钟内免重取，返回列表零等待。
+- **写后失效**：新建笔记后 `invalidateNuxtData('notes')`，下次进列表自动拉新。
+- **多实例部署**：Nitro storage 切 redis 驱动，ISR 缓存跨实例共享，扩缩容不丢缓存。
+- **多 tab 会话同步**：登录/登出用 `BroadcastChannel` 广播，所有 tab 的 `useState` 同步更新。
+- **乐观更新 CRUD**：点赞先变红再请求，失败时回滚并 toast，感知延迟为零。
+- **按用户隔离缓存**：key 拼接 `user:${id}:notes`，切换账号时 `clearNuxtData()` 全清。
+
+## 完整代码示例
+
+```ts
+// 文件: app/composables/useNotesCached.ts
+import type { Note } from '#shared/types/note'
+
+// 带 TTL 的客户端缓存：5 分钟内重复进入页面不再请求
+const TTL = 5 * 60 * 1000
+
+export async function useNotesCached() {
+    // 用 useState 记录上次取数时间，跨组件共享
+    const fetchedAt = useState<number>('notes:fetched-at', () => 0)
+
+    return await useAsyncData<Note[]>('notes', () => $fetch('/api/notes'), {
+        getCachedData(key, nuxtApp) {
+            const fresh = Date.now() - fetchedAt.value < TTL
+            if (!fresh) return undefined  // 返回 undefined = 缓存未命中，重新请求
+            return nuxtApp.payload.data[key] ?? nuxtApp.static.data[key]
+        }
+    }).then((result) => {
+        // 请求成功后刷新时间戳
+        if (result.status.value === 'success') fetchedAt.value = Date.now()
+        return result
+    })
+}
+```
+
+> 运行方式：`cd app && npm install && npm run dev`，在列表页与详情页都调用 `useNotesCached()`，DevTools Network 面板观察 5 分钟内往返两个页面只有一次 `/api/notes` 请求。
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    nitro: {
+        storage: {
+            // 声明 cache 挂载点；本地默认 memory，生产可切 redis
+            cache: {
+                driver: process.env.REDIS_URL ? 'redis' : 'memory',
+                url: process.env.REDIS_URL
+            }
+        }
+    },
+    routeRules: {
+        // ISR 渲染结果也写入 storage，redis 驱动下多实例共享
+        '/notes/**': { isr: 300 }
+    },
+    compatibilityDate: '2025-07-15'
+})
+```
+
+> 运行方式：默认 memory 驱动直接 `npm run dev`；设置 `REDIS_URL=redis://localhost:6379` 后同一缓存可被多个实例共享，用 `useStorage('cache')` 在 server 路由里读写验证。
+
+```vue
+<!-- 文件: app/pages/notes/admin.vue -->
+<script setup lang="ts">
+    import type { Note } from '#shared/types/note'
+
+    const { data: notes, refresh } = await useFetch<Note[]>('/api/notes')
+    const toast = useState<string | null>('toast', () => null)
+
+    async function remove(id: number) {
+        // 乐观更新：先从共享缓存里移除，UI 立即变化
+        const backup = notes.value
+        notes.value = (notes.value ?? []).filter((n) => n.id !== id)
+        try {
+            await $fetch(`/api/notes/${id}`, { method: 'DELETE' })
+            // 标记失效而非立即刷新：下次使用时再拉新
+            await invalidateNuxtData('notes')
+        }
+        catch {
+            // 失败回滚 + 提示
+            notes.value = backup
+            toast.value = '删除失败，已恢复'
+        }
+    }
+</script>
+
+<template>
+    <main>
+        <h1>笔记管理（乐观更新演示）</h1>
+        <p v-if="toast" class="toast">{{ toast }}</p>
+        <ul>
+            <li v-for="note in notes ?? []" :key="note.id">
+                {{ note.title }}
+                <button type="button" @click="remove(note.id)">删除</button>
+            </li>
+        </ul>
+        <button type="button" @click="refresh()">手动刷新</button>
+    </main>
+</template>
+```
+
+> 运行方式：`npm run dev` 后访问 `http://localhost:3000/notes/admin`，点删除观察 UI 立即响应；临时把 API 改成抛错可验证回滚路径。
+
+```ts
+// 文件: app/plugins/broadcast.client.ts
+export default defineNuxtPlugin(() => {
+    const channel = new BroadcastChannel('nuxt-session')
+    // 监听其他 tab 的失效广播，保持多 tab 数据一致
+    channel.onmessage = (event: MessageEvent<{ invalidate?: string[] }>) => {
+        if (event.data.invalidate) {
+            event.data.invalidate.forEach((key) => invalidateNuxtData(key))
+        }
+    }
+    // 暴露广播方法供写操作后调用
+    return {
+        provide: {
+            broadcastInvalidate: (keys: string[]) =>
+                channel.postMessage({ invalidate: keys })
+        }
+    }
+})
+```
+
+> 运行方式：`npm run dev` 后开两个 tab 访问 `http://localhost:3000/notes`，在一个 tab 执行写操作并调用 `$broadcastInvalidate(['notes'])`，另一个 tab 的数据会同步失效。
+
+## 最佳实践
+
+1. **key 设计先于代码**：把「哪些数据共享、哪些隔离」画成 key 的命名规范（如 `notes`、`note:${id}`、`user:${uid}:notes`），团队所有人按规范写，缓存行为才可预测。
+2. **写后优先 `invalidate` 而非 `refresh`**：失效标记是惰性的，只有真正再次用到才请求；盲目 `refresh` 可能为用户永远不会再看的页面白白拉数据。
+3. **乐观更新必须配回滚与提示**：先改缓存 → 请求 → 失败恢复备份，三步缺一不可；同时给用户 toast，避免「明明删了又出现」的困惑。
+4. **storage 驱动按环境分层**：本地 memory、预览 fs、生产 redis/kv；用环境变量切换而非改代码，`nitro.storage` 配置保持单一来源。
+5. **敏感数据别进 payload 与共享缓存**：用户私有数据的 key 必须带用户标识，登出时 `clearNuxtData()` 全量清理，防串号。
+6. **多 tab 只同步「失效信号」**：`BroadcastChannel` 传 key 不传数据本身，让各 tab 各自重新拉取，避免跨 tab 传递大对象的序列化成本与一致性问题。
+
+## 常见问题
+
+### Q：`useFetch('/api/notes')` 在两个页面各写一次，会请求几次？
+
+A：一次。相同 URL + 选项推导出相同 key，Nuxt 自动 dedupe 并共享 `data`。但若两边选项不同（如不同的 `query`），key 就不同，会各自请求——这就是「key 即身份」。
+
+### Q：`invalidateNuxtData` 之后数据为什么没立即更新？
+
+A：这是设计如此：它只把缓存标记为失效，等下一次有组件使用这份数据时才重新请求。想要「立即重新拉取」请用 `refreshNuxtData` 或该请求的 `refresh()`。
+
+### Q：`getCachedData` 里返回了旧数据，为什么请求还是发出去了？
+
+A：常见原因是返回了 `undefined` 以外的 falsy 值被误判，或 `payload.data[key]` 本身不存在导致走了 `static.data` 分支也是空。调试时在 `getCachedData` 里打日志确认返回值，命中时必须是真实数据对象。
+
+### Q：多实例部署后 ISR 页面有的新有的旧？
+
+A：默认 memory 驱动是实例内缓存，每个实例各自再生。把 `nitro.storage` 的对应挂载点切到 redis（或平台 KV），所有实例共享同一份渲染缓存即可解决。
+
+## 小结
+
+- key 即身份：同 key 自动共享与 dedupe，`useNuxtData(key)` 只读访问共享缓存。
+- `getCachedData` 实现可编程客户端缓存，配合 `useState` 时间戳可做 TTL。
+- Nitro storage（unstorage）统一服务端缓存，memory/redis/kv 驱动按环境切换。
+- 一致性三板斧：`invalidateNuxtData`（惰性失效）、`refreshNuxtData`（立即拉新）、`clearNuxtData`（清空）。
+- 乐观更新 = 先改缓存 + 失败回滚 + 用户提示；多 tab 用 `BroadcastChannel` 广播失效信号。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】`refreshNuxtData`、`invalidateNuxtData`、`clearNuxtData` 三者的语义差异是什么？</b></summary>
+
+`refreshNuxtData(key)` 立即重新执行 handler 拉取新数据；`invalidateNuxtData(key)` 只把缓存标记为失效，下次被使用时才重新请求（惰性）；`clearNuxtData(key)` 直接把 `data` 清回 `undefined`/默认值。写操作后一般用 invalidate，用户点了「刷新」按钮用 refresh，登出切账号用 clear。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】用 `getCachedData` 实现「10 分钟内不重复请求」需要哪几个要素？</b></summary>
+
+三要素：一个跨组件共享的时间戳（`useState` 记录 `fetchedAt`）；`getCachedData` 内比较 `Date.now() - fetchedAt < TTL`，新鲜则返回 `nuxtApp.payload.data[key]`（或 `static.data`），不新鲜返回 `undefined` 触发重新请求；请求成功后更新时间戳。缺了更新时间戳这一步，缓存会永远停留在第一次取数时刻。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】为什么多实例部署时必须把 Nitro storage 切到 redis，而不是每个实例各用 memory？</b></summary>
+
+memory 驱动是进程内缓存：实例 A 再生的 ISR 页面，实例 B 完全不知情，负载均衡把用户打到不同实例就会看到新旧不一的内容；扩容/重启还会整体丢缓存。redis 作为外部共享存储，让所有实例读写同一份缓存，渲染结果一致、再生只发生一次，且实例生命周期与缓存解耦。
+
+</details>
+
+
+---
+
+<!-- 来源：20-large-scale-architecture.md -->
+
+# 20. 大型 Nuxt 应用架构
+
+> 本章示例：`layers/base/nuxt.config.ts`、`modules/audit/index.ts`、`pnpm-workspace.yaml`、`app/nuxt.config.ts`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/`，观察 layer 合并后的页面与自动导入
+
+## 概念解析
+
+**Nuxt Layers 是大型应用的第一块基石**。`nuxt.config.ts` 里的 `extends` 字段可以把一个完整 Nuxt 项目（组件、composables、页面、server 路由、配置）作为「层」继承进来，多层按声明顺序叠加，越靠后的层优先级越高、同名文件覆盖前者。auto-imports、组件注册、`app.config` 全部支持层叠合并。这让「设计系统层 + 业务基础层 + 应用层」的三明治结构成为可能：**复用不靠 npm 包发布，而靠文件系统直接继承**，改底层即时生效，没有版本发布摩擦。
+
+**自定义 Nuxt Module 是框架级扩展的正道**。用 `@nuxt/kit` 的 `defineNuxtModule` 定义模块，`addPlugin`、`addServerHandler`、`addImports`、`addComponent` 往应用里注入能力，`extendRouteRules`、`extendPages` 改写路由。与 plugin 的区别在于：module 运行在**构建期**（能改配置、生成文件、注册虚拟模块），plugin 运行在**运行时**。团队内部的埋点、审计、灰度等横切关注点，封装成 module 一次接入所有项目，比每个项目复制 plugin 强一个量级。
+
+**Monorepo 是 Layers 的天然载体**。pnpm workspace 把 `apps/*` 与 `layers/*`、`packages/*` 收进一个仓库，应用通过 `extends: ['@acme/nuxt-base']` 引用共享层（workspace 协议软链，无需发布）；叠加 Turborepo 做任务编排与构建缓存，几十个应用共享同一份 CI 时间。关键纪律：**共享层的改动视为对全部应用的变更**，需要类型检查与测试在 workspace 层面全量跑通。
+
+**约定优于配置有明确边界**。Nuxt 的文件约定（`pages/`、`components/`、`server/api/`）在单应用内是效率利器，但大型应用要敢于在边界处引入显式结构：按业务域（DDD）组织 feature 目录（`features/billing/`、`features/search/`），域内自治、域间通过显式导出通信；设计 token 与主题抽成独立 layer（CSS 变量 + `app.config`），全站统一换肤只改一处。**该守的约定一分不让（框架红利），该显式的边界一寸不糊（架构纪律）**——微前端（Module Federation、qiankun、Web Components）则是最后一道选项，只有当独立部署、多团队并行、技术栈异构三个条件同时成立时才值得引入。
+
+## 典型应用场景
+
+- **设计系统层**：`layers/ui` 沉淀品牌组件与设计 token，十个应用 `extends` 复用，换主题改一层。
+- **内部能力模块**：`modules/audit` 统一注入埋点 SDK + server 中间件，所有项目一行 `modules: ['@acme/audit']` 接入。
+- **多品牌站群**：同一套业务代码，按品牌 extends 不同 theme layer，构建出多个站点。
+- **Monorepo 应用矩阵**：`apps/store`、`apps/admin` 共享 `layers/base`，Turborepo 增量构建。
+- **业务域自治**：电商按 `features/cart`、`features/order` 组织，域内组件/接口/store 自包含。
+- **老系统渐进迁移**：用 Web Components 把新 Nuxt 模块嵌入 legacy 页面，逐步替换而非大爆炸重写。
+
+## 完整代码示例
+
+```ts
+// 文件: layers/base/nuxt.config.ts
+// 基础层：全公司共享的组件、composables 与默认配置
+export default defineNuxtConfig({
+    // 层可以有自己的 components/composables/server 目录，自动被继承
+    components: [{ path: './components', pathPrefix: false }],
+    appConfig: {
+        // 应用层可覆盖的主题 token
+        theme: { primary: '#2563eb', radius: '8px' }
+    },
+    routeRules: {
+        // 全公司统一的缓存纪律，应用层可再补充
+        '/_nuxt/**': {
+            headers: { 'cache-control': 'public, max-age=31536000, immutable' }
+        }
+    }
+})
+```
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    // 继承基础层；数组靠后的层优先级更高
+    extends: ['../layers/base'],
+    appConfig: {
+        // 覆盖基础层的主题色，其余字段保持继承
+        theme: { primary: '#16a34a' }
+    },
+    modules: ['../modules/audit'],
+    compatibilityDate: '2025-07-15'
+})
+```
+
+> 运行方式：`cd app && npm install && npm run dev`，访问 `http://localhost:3000/`——基础层的组件可直接使用（无需 import），`useAppConfig().theme.primary` 读到的是覆盖后的绿色。
+
+```ts
+// 文件: modules/audit/index.ts
+import { defineNuxtModule, addPlugin, addServerHandler, createResolver } from '@nuxt/kit'
+
+export default defineNuxtModule({
+    meta: { name: '@acme/audit', configKey: 'audit' },
+    defaults: { endpoint: '/api/audit' },
+    setup(options, nuxt) {
+        const { resolve } = createResolver(import.meta.url)
+        // 注入运行时插件（客户端上报）
+        addPlugin(resolve('./runtime/plugin'))
+        // 注入服务端路由（接收审计事件）
+        addServerHandler({
+            route: '/api/audit',
+            handler: resolve('./runtime/server/audit.post')
+        })
+        // 把配置透传到 runtimeConfig，运行时可读
+        nuxt.options.runtimeConfig.audit = { endpoint: options.endpoint }
+    }
+})
+```
+
+> 运行方式：在 `app/nuxt.config.ts` 的 `modules` 里登记后 `npm run dev`，模块会自动挂载 `/api/audit` 接口与客户端插件；用 `curl -X POST http://localhost:3000/api/audit -d '{}'` 验证 server handler 生效。
+
+```yaml
+# 文件: pnpm-workspace.yaml
+packages:
+    - 'apps/*'
+    - 'layers/*'
+    - 'modules/*'
+    - 'packages/*'
+```
+
+```bash
+# 文件: 大型项目目录速查.sh
+# Monorepo 推荐结构
+tree -L 3 -d
+# .
+# ├── apps/
+# │   ├── store/          # 商城应用，extends layers/base + layers/shop
+# │   └── admin/          # 后台应用，extends layers/base
+# ├── layers/
+# │   ├── base/           # 设计 token、基础组件、统一 routeRules
+# │   └── shop/           # 电商业务域：features/cart、features/order
+# ├── modules/
+# │   └── audit/          # 横切关注点：埋点/审计 module
+# └── packages/
+#     └── types/          # 跨应用共享的 TS 类型
+
+# Turborepo 增量构建（turbo.json 声明任务依赖后）
+pnpm turbo run build --filter=store
+```
+
+> 运行方式：在 monorepo 根目录执行；`pnpm-workspace.yaml` 声明后 `pnpm install` 即完成软链，`apps/*` 里可直接 `extends: ['@acme/base']`。
+
+## 最佳实践
+
+1. **层按「稳定度」划分而非按「功能」划分**：设计系统层变动最少放最底，业务层其次，应用层最易变放最上；越是底层越要克制改动，一次破坏性修改波及全部应用。
+2. **module 只封装横切关注点**：埋点、审计、灰度、监控这类「每个项目都要、但谁也不该重写」的能力；业务逻辑留在应用代码里，别为了抽象而抽象。
+3. **共享层改动跑全量检查**：workspace 根目录的 CI 必须对依赖该层的所有应用跑 typecheck 与 test，把「改底层炸了上游」拦截在合并前。
+4. **业务域边界用显式导出守卫**：`features/billing` 只通过 `index.ts` 暴露公开 API，域内文件禁止被外部直接深路径 import（可用 ESLint `no-restricted-imports` 强制）。
+5. **主题只走 token，不写死颜色**：颜色、圆角、间距全部来自 CSS 变量 + `app.config`；任何组件里出现十六进制色值都应视为设计系统的泄漏。
+6. **微前端是最后选项**：先穷尽 layers、module、monorepo 三件武器；只有「独立部署 + 多团队 + 异构栈」三者齐备时才上 Module Federation 或 Web Components，否则付出的隔离成本远超收益。
+
+## 常见问题
+
+### Q：layer 里的页面会把应用层的同名路由覆盖掉吗？
+
+A：优先级是「应用 > 后声明的层 > 先声明的层」。应用层的 `pages/` 与 layer 的 `pages/` 会合并，同名路由应用优先；layer 更适合提供组件、composables 与默认配置，页面级覆盖要谨慎使用并在文档里写明。
+
+### Q：module 和 plugin 到底怎么选？
+
+A：一句话：构建期能做的事用 module（注册组件、注入虚拟模块、改 routeRules、生成类型），运行时才有的上下文用 plugin（拿 `nuxtApp`、注册全局指令、响应式逻辑）。module 可以通过 `addPlugin` 顺带注入 plugin，二者是配合而非二选一。
+
+### Q：`extends` 引用 npm 包和本地路径有什么区别？
+
+A：本地路径（`'../layers/base'`）零发布成本、改动即时生效，适合 monorepo 内；npm 包适合跨仓库分发，但每次改动要发版。实操上 monorepo 用 workspace 软链兼顾两者：包名引用 + 本地链接。
+
+### Q：什么时候该把 `components/` 的大杂烩重构成 feature 目录？
+
+A：经验信号：组件数超过约 50 个、或新成员找组件要靠全局搜索时。按业务域重组后，每个 feature 自带 `components/`、`composables/`、`server/`，Nuxt 的 auto-import 依然生效（需在各 feature 目录注册扫描路径），架构清晰度与开发效率兼得。
+
+## 小结
+
+- Layers：`extends` 按序层叠，后者覆盖前者，组件/配置/server 路由全部可继承。
+- Module：用 `@nuxt/kit` 在构建期扩展框架，封装横切关注点；plugin 管运行时。
+- Monorepo：pnpm workspace 收编 apps/layers/modules，Turborepo 增量构建，共享层改动全量回归。
+- 边界感：框架约定守到底，业务边界显式化（DDD feature 目录 + 显式导出）。
+- 微前端仅当独立部署、多团队、异构栈同时成立才引入，否则 layers 已够用。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】Nuxt Layers 的覆盖优先级规则是什么，适合往 layer 里放什么？</b></summary>
+
+`extends` 数组中靠后的层优先级更高，应用自身优先级最高，同名文件与配置项高优先级覆盖低优先级。layer 适合放稳定、跨项目复用的资产：设计 token、基础组件、通用 composables、统一 routeRules 与 appConfig 默认值；易变的业务页面尽量留在应用层。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】用 `@nuxt/kit` 写一个「给所有项目注入 `/api/health` 健康检查接口」的 module，核心 API 是哪两个？</b></summary>
+
+`defineNuxtModule` 定义模块骨架（`meta` + `defaults` + `setup`），`addServerHandler({ route: '/api/health', handler })` 在构建期注册服务端路由。若还需客户端配合（如启动时 ping 一次），再用 `addPlugin` 注入运行时插件。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】团队在 monorepo 里改了 `layers/base` 的一个组件导致三个应用线上样式错乱，流程上缺了哪两道防线？</b></summary>
+
+防线一：workspace 级 CI 未对全部下游应用跑 typecheck/test/build——共享层应声明「被谁依赖」，改动触发依赖方的全量验证（Turborepo 的依赖图天然支持）。防线二：缺少视觉/主题回归——设计 token 与基础组件变更应跑截图对比（如 Playwright + 视觉回归工具），纯类型检查挡不住样式破坏。补一句纪律：底层层的 PR 必须显式标注影响面。
+
+</details>
+
+
+---
+
+<!-- 来源：21-security.md -->
+
+# 21. Nuxt 安全实战
+
+> 本章示例：`app/server/middleware/01.security.ts`、`app/server/api/auth/login.post.ts`、`app/utils/sanitize.ts`、`app/nuxt.config.ts`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/login` 与 `http://localhost:3000/notes/1`
+
+## 概念解析
+
+**Nuxt 的全栈形态把攻击面翻了一倍：浏览器端要面对 XSS 与 CSRF，Nitro 服务端要面对注入、爆破与越权，而 SSR 把两侧缝在了一起**。安全设计的起点是分层设防：第一层在 Cookie——会话凭证一律 `httpOnly`（JS 摸不到，XSS 窃不走）、生产加 `Secure`（仅 HTTPS 传输）、`sameSite: 'lax'`（跨站 POST 不携带，这是抗 CSRF 的第一梯队）；第二层在服务端中间件——对所有写操作（POST/PUT/DELETE）做 `Origin` 同源校验，跨站表单与跨站 fetch 在这里就会现形；第三层才是 CSRF token——「双重提交」模式最适合 Nuxt：服务端下发一个**非 httpOnly** 的 `csrf-token` Cookie，前端发写请求时从 Cookie 读出并放进自定义头 `x-csrf-token`，服务端比对两者一致才放行。攻击者能伪造表单让浏览器带上 Cookie，却读不到 Cookie 的值、也就构造不出匹配的头（跨站 JS 受同源策略限制）。
+
+**XSS 的主入口是 `v-html` 与用户可控的 URL/属性绑定**。SSR 场景比纯 SPA 更危险：被注入的 HTML 直接出现在首屏服务端响应里，`<img onerror>` 之类的事件属性无需等 JS 框架接管就会执行。防线的标准组合是「清洗 + CSP」：渲染富文本前用 DOMPurify（SSR 下用 `isomorphic-dompurify`）按白名单砍掉危险标签与属性；CSP 作为兜底，即使清洗漏网，浏览器也会拒绝执行内联脚本。推荐的 CSP 姿势是 **nonce + `strict-dynamic`**：`nuxt-security` 模块给每个响应的合法脚本打上一次性 `nonce`，`strict-dynamic` 让这些可信脚本加载的下游脚本自动获得信任，三方统计/客服 SDK 不用逐个列白名单。
+
+**密钥管理的分水岭是 `runtimeConfig` 的私有键与 `public` 键**。`public` 下的值会序列化进客户端 bundle 与 payload，任何人查看网页源代码即可读到——数据库密码、JWT 签名密钥、第三方 API secret 一旦放错位置就是事故。私有键只在 Nitro 侧通过 `useRuntimeConfig(event)` 读取，生产用 `NUXT_` 前缀环境变量覆盖。同理，`useRequestHeaders()` 全量透传请求头给上游是隐蔽的泄密通道：它可能把本站会话 Cookie、`Authorization` 头一并转发给第三方 API，正确做法是显式白名单 `useRequestHeaders(['cookie'])`、且只在确需 SSR 带态时透传。
+
+**认证的双轨制各解决不同问题**。有状态 Session（Cookie 里的会话 ID + 服务端存储）可即时吊销、实现简单，是同站点 Web 应用的默认推荐；无状态 JWT 不查库即可验签，适合跨服务、移动端的 `Authorization` 头场景。生产上常见的折中是「短寿命 access token（15 分钟）+ httpOnly Cookie 里的 refresh token」，refresh 每次使用即轮换（rotation），旧 token 再次出现即判定被盗、整族会话吊销。无论哪一轨，**认证端点必须配限流**：登录、注册、重置密码按 IP 与账号双维度限频，Nitro 中间件或 `nuxt-security` 的 `rateLimiter` 都能落地，否则前面的密码学设计会被撞库与爆破绕过。
+
+## 典型应用场景
+
+- **登录/注册/重置密码端点**：限流 + zod 入参校验 + `httpOnly`/`Secure`/`sameSite` Cookie 三件套 + refresh token 轮换。
+- **富文本笔记/评论渲染**：`v-html` 之前先过 DOMPurify 白名单清洗，CSP 兜底拦截漏网注入。
+- **接入三方脚本（统计、客服、支付）**：`nuxt-security` 开启 nonce + `strict-dynamic`，拒绝 `unsafe-inline` 开口子。
+- **对外开放 API**：独立路由配 `cors: true` 并维护 origin 白名单，与本站写操作 CSRF 策略分开管理。
+- **多环境密钥**：`runtimeConfig` 私有键存 JWT/OAuth secret，生产用 `NUXT_JWT_SECRET` 注入，同一份产物跑预发与生产。
+- **SSR 请求上游内部服务**：`useRequestHeaders` 白名单透传 `cookie`，绝不透传 `authorization` 给外部域名。
+
+## 完整代码示例
+
+```ts
+// 文件: app/server/middleware/01.security.ts
+// 写操作统一防护：Origin 同源校验 + 双重提交 CSRF token
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+export default defineEventHandler((event) => {
+    if (SAFE_METHODS.has(event.method)) return;
+    const url = getRequestURL(event);
+    // 只保护本站 API；对外开放接口走独立鉴权与 CORS 白名单
+    if (!url.pathname.startsWith('/api/')) return;
+
+    // 第一道：Origin 必须同源，跨站表单/fetch 在此现形
+    const origin = getRequestHeader(event, 'origin');
+    if (origin && origin !== url.origin) {
+        throw createError({ statusCode: 403, statusMessage: 'Origin 校验失败' });
+    }
+
+    // 第二道：双重提交——Cookie 中的 token 必须与自定义头一致
+    const cookieToken = getCookie(event, 'csrf-token');
+    const headerToken = getRequestHeader(event, 'x-csrf-token');
+    if (!cookieToken || cookieToken !== headerToken) {
+        throw createError({ statusCode: 403, statusMessage: 'CSRF token 校验失败' });
+    }
+});
+```
+
+> 运行方式：`npm run dev` 后，在 DevTools 控制台执行 `fetch('/api/notes', { method: 'POST', body: '{}' })` 应收到 403；token 由登录接口（或任意 GET 端点补一行 `setCookie(event, 'csrf-token', crypto.randomUUID(), { sameSite: 'lax' })`，注意**不能**加 `httpOnly`）下发，前端发写请求时从 Cookie 读出并写入 `x-csrf-token` 头即可通过。
+
+```ts
+// 文件: app/server/api/auth/login.post.ts
+// 双轨认证：httpOnly Cookie 里的 refresh token + 15 分钟短寿命 JWT
+import { SignJWT } from 'jose';
+
+export default defineEventHandler(async (event) => {
+    const body = await readBody<{ username?: string; password?: string }>(event);
+    if (body?.username !== 'demo' || body?.password !== 'nuxt1234') {
+        // 报错文案不区分「用户不存在」与「密码错误」，防账号枚举
+        throw createError({ statusCode: 401, statusMessage: '账号或密码错误' });
+    }
+    const { jwtSecret } = useRuntimeConfig(event);
+    const key = new TextEncoder().encode(jwtSecret);
+
+    // 有状态轨：refresh token 放 httpOnly Cookie，XSS 窃不走
+    setCookie(event, 'refresh_token', crypto.randomUUID(), {
+        httpOnly: true,
+        secure: !import.meta.dev, // 生产强制 HTTPS 传输
+        sameSite: 'lax',          // 抗 CSRF 第一梯队
+        path: '/api/auth',        // 缩小携带范围，减少暴露面
+        maxAge: 60 * 60 * 24 * 7
+    });
+
+    // 无状态轨：短寿命 JWT，供移动端/跨服务的 Authorization 头使用
+    const accessToken = await new SignJWT({ sub: 'demo' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setExpirationTime('15m')
+        .sign(key);
+
+    return { accessToken, user: { name: 'demo' } };
+});
+```
+
+> 运行方式：访问 `http://localhost:3000/login` 用 `demo / nuxt1234` 登录，DevTools Application 面板可见 `refresh_token` Cookie 带 `HttpOnly` 标记；响应体里的 `accessToken` 供无状态场景使用。
+
+```ts
+// 文件: app/utils/sanitize.ts
+// 富文本清洗：只允许排版所需的最小标签/属性集合
+// isomorphic-dompurify 在服务端用 jsdom、浏览器用原生 DOM，SSR 两侧行为一致
+import DOMPurify from 'isomorphic-dompurify';
+
+export function sanitizeHtml(dirty: string): string {
+    return DOMPurify.sanitize(dirty, {
+        ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'a', 'h2', 'h3', 'blockquote'],
+        ALLOWED_ATTR: ['href', 'target', 'rel'],
+        // 外链强制新窗口且断开 window.opener，防反向标签劫持
+        ADD_ATTR: ['target', 'rel']
+    });
+}
+```
+
+> 运行方式：在 `app/pages/notes/[id].vue` 中把 `<div v-html="note.content">` 改为 `<div v-html="sanitizeHtml(note.content)">`（`utils/` 下函数自动导入），用含 `<script>alert(1)</script>` 的笔记内容验证注入被清除。
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    modules: ['@pinia/nuxt', 'nuxt-security'],
+    runtimeConfig: {
+        // 私有键：仅 Nitro 侧可读，绝不进入客户端 bundle
+        jwtSecret: 'dev-only-secret',
+        public: {
+            siteName: 'Nuxt LearnHub'
+        }
+    },
+    security: {
+        nonce: true, // 每个响应生成一次性 nonce，合法内联脚本才能执行
+        headers: {
+            contentSecurityPolicy: {
+                'default-src': ["'self'"],
+                // strict-dynamic：被 nonce 信任的脚本可再加载下游脚本，免逐个列三方域名
+                'script-src': ["'self'", "'strict-dynamic'"],
+                'style-src': ["'self'", "'unsafe-inline'"],
+                'img-src': ["'self'", 'data:'],
+                'object-src': ["'none'"],
+                'base-uri': ["'self'"]
+            },
+            strictTransportSecurity: 'max-age=31536000; includeSubDomains',
+            xContentTypeOptions: 'nosniff',
+            referrerPolicy: 'strict-origin-when-cross-origin'
+        },
+        rateLimiter: {
+            tokensPerInterval: 150, // 5 分钟 150 次，超出返回 429
+            interval: 300000
+        }
+    },
+    devtools: { enabled: true },
+    compatibilityDate: '2025-07-15'
+});
+```
+
+> 运行方式：`npm install nuxt-security` 后 `npm run dev`，DevTools Network 面板检查任意响应头可见 `content-security-policy` 与 `strict-transport-security`；DevTools Console 中尝试注入内联脚本会被浏览器拦截并报告 CSP 违规。
+
+## 最佳实践
+
+1. **默认不信任任何输入**：URL 参数、请求体、请求头、富文本全部视为攻击面——写接口用 zod 校验 body，渲染富文本前过 DOMPurify，跳转参数防 `javascript:` 伪协议。
+2. **Cookie 三件套一次写全**：会话 Cookie 必须 `httpOnly` + 生产 `Secure` + `sameSite: 'lax'`（或 `strict`）；任何「先跑起来再说」的简化都会变成线上事故。
+3. **私有键永远不进 `public`**：`runtimeConfig.public` 会序列化进客户端，密钥泄露事故九成源于此；code review 时把 `public` 块当高危区逐行看。
+4. **CSP 用 nonce 而非 `unsafe-inline`**：`nuxt-security` 自动注入并轮转 nonce，三方脚本交给 `strict-dynamic` 传递信任，不为一时省事开全局内联口子。
+5. **认证端点限流按「IP + 账号」双维度**：仅按 IP 限流会被代理池绕过，仅按账号限流会被用来锁死受害者；报错文案统一，不泄露账号是否存在。
+6. **透传请求头一律白名单**：`useRequestHeaders(['cookie'])` 只取所需，且只发给可信上游；对外部第三方 API 用独立的凭证体系，绝不转发本站会话。
+
+## 常见问题
+
+### Q：JWT 到底放 `localStorage` 还是 Cookie？
+
+A：放 `localStorage` 的 token 任何一次 XSS 都能被整锅端走；放 `httpOnly` Cookie 则 XSS 窃不走、但要面对 CSRF（用 SameSite + Origin 校验 + token 三道防）。同站点 Web 应用推荐 httpOnly Cookie；跨域 SPA/移动端不得不用 `Authorization` 头时，接受 XSS 风险并配短寿命 + refresh 轮换降低损失。
+
+### Q：`sameSite: 'lax'` 已经能挡 CSRF，为什么还要 Origin 校验与 token？
+
+A：`lax` 只挡跨站 POST 等写请求，不挡跨站 GET；且旧浏览器、子域名被攻陷（`lax` 对同站子域名放行）、`sameSite: 'none'` 的第三方嵌入场景都会留下缺口。纵深防御的意义就是任何单层失效都不致命。
+
+### Q：开启 CSP 后内联脚本全部报错，页面白屏怎么办？
+
+A：不要退回 `unsafe-inline`。用 `nuxt-security` 的 nonce 模式：模块会给 Nuxt 自身的内联引导脚本自动打 nonce，剩余报错逐项排查——自己的内联脚本挪进 `.ts` 文件，三方脚本靠 `strict-dynamic` 由可信脚本间接加载。
+
+### Q：`useRequestHeaders()` 不传参数全量透传有什么坑？
+
+A：它会把浏览器发来的所有头（含 `cookie`、`authorization`）原样转发给你请求的上游。若上游是第三方服务，等于把本站用户会话拱手送出；若上游会根据 `host`/`x-forwarded-host` 生成链接，还可能引入 Host 头注入。务必传白名单数组。
+
+## 小结
+
+- 写操作三层设防：SameSite Cookie 打底，Origin 同源校验抓跨站请求，双重提交 token 兜底。
+- XSS 组合技：DOMPurify 白名单清洗 + nonce 化 CSP（`strict-dynamic` 兼容三方脚本），`v-html` 前先过 `sanitizeHtml`。
+- 密钥纪律：`runtimeConfig` 私有键只在服务端读、`public` 永不放 secret、`useRequestHeaders` 白名单透传。
+- 认证双轨：httpOnly Cookie Session（同站）与短寿命 JWT + refresh 轮换（跨端），认证端点必配双维度限流。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】为什么 CSRF 双重提交模式里，存 token 的 Cookie 恰恰不能设 `httpOnly`？</b></summary>
+
+前端 JS 需要读出 Cookie 里的 token 并写进 `x-csrf-token` 自定义头，`httpOnly` 会阻止 JS 读取导致模式失效。安全前提是：这个 Cookie 本身不是会话凭证（被偷无用），攻击者无法在自己的域里读到目标站 Cookie 的值，也就伪造不出一致的头。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】SSR 应用中 `v-html` 渲染用户内容，为什么比纯 SPA 更需要 DOMPurify 清洗？</b></summary>
+
+SSR 把注入的 HTML 直接写进首屏响应，`<img onerror>` 这类事件属性在框架水合之前就会被浏览器执行，攻击不依赖任何 JS 框架时机；同时恶意内容还会进入 payload 序列化通道。清洗必须在服务端渲染前完成（用 `isomorphic-dompurify` 保证两侧一致），CSP 作为第二道防线拦截漏网之鱼。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】refresh token 轮换机制如何检测「token 已被盗用」？检测到时该怎么处理？</b></summary>
+
+每次用 refresh token 换发新 access token 时，同时签发**新的** refresh token 并令旧 token 立即失效（服务端记录已轮换的 token 族）。若某个已失效的旧 token 被再次使用，说明它与新 token 必有一方在攻击者手中——判定该会话族被盗，吊销整族所有 token 并强制重新登录。这样攻击者与正常用户必有一方很快掉线，盗用窗口被压缩到一次轮换周期内。
+
+</details>
+
+
+---
+
+<!-- 来源：22-testing-advanced.md -->
+
+# 22. 测试体系进阶
+
+> 本章示例：`app/vitest.config.ts`、`app/tests/composables/useNotes.test.ts`、`app/tests/components/NoteCard.test.ts`、`app/tests/e2e/notes.spec.ts`
+> 运行方式：`cd app && npm install -D @nuxt/test-utils happy-dom playwright-core && npx playwright install chromium`，单元/组件测试 `npm run test`，e2e 测试 `npx vitest run tests/e2e`
+
+## 概念解析
+
+第 14 章的纯函数单测只是金字塔的底座。Nuxt 应用的测试难点在于「代码离不开运行时」：composable 依赖 Nuxt 上下文、组件依赖自动导入与 `NuxtLink`、页面依赖 SSR 与水合。**`@nuxt/test-utils` 用一个框架覆盖三种模式**：纯单测（`node` 环境，测 `utils/` 里的纯函数，速度最快）；Nuxt 环境测试（`environment: 'nuxt'`，在真实的 Nuxt 实例里跑 composable 与组件，自动导入、`useRuntimeConfig`、插件全部就位，无需手工搭建应用）；e2e（`@nuxt/test-utils/e2e`，基于 Playwright，对**构建产物**起真实 server 后用浏览器驱动，最接近生产）。三者的配比就是经典金字塔：大量纯单测打底、适量 Nuxt 环境测试覆盖 composable 与组件、少量 e2e 守关键链路。
+
+**mock 的哲学是「只 mock 边界」**。Nuxt 环境里最大的边界是网络请求与自动导入的 composable，`mockNuxtImport` 专门解决后者：它是构建期宏，能把 `useFetch`、`useRoute` 这类自动导入替换成你的工厂实现。注意它的两层写法——外层工厂返回内层实现函数——因为自动导入的 composable 本身是「调用后返回结果」的函数。配合 `vi.hoisted` 提前声明 mock 函数，就可以在断言里检查调用参数（比如 composable 是否用了约定的缓存 key）。
+
+**组件测试的核心 API 是 `mountSuspended`**。Nuxt 页面与组件普遍是 `async setup`（顶层 `await useFetch`），Vue 要求这类组件必须包在 `<Suspense>` 里挂载；`mountSuspended` 自动完成这层包裹并提供完整 Nuxt 上下文，返回标准的 Vue Test Utils wrapper。 sibling API `renderSuspended` 则返回渲染后的 HTML 字符串/DOM，适合断言纯输出。测试环境里的 `NuxtLink` 会被替换成 stub，断言它的 `to` prop 比模拟真实跳转更稳。
+
+**e2e 与质量门禁决定测试体系能否长寿**。`setup({ build: true })` 让每个 e2e 文件先构建再对 `.output/` 起服务，慢但真实；`createPage()` 拿到 Playwright 的 page，配合**页面对象模式**把选择器与操作封装成类，页面改版时只改一处。覆盖率用 v8 provider 采集，关键不是数字本身而是 `thresholds` 门禁——低于阈值 CI 直接红，存量项目可以先把阈值定在现状、再随债务清偿逐季上调。CI 侧的两大提速杠杆是缓存（pnpm store、Playwright 浏览器二进制）与并行（Node 版本矩阵 × e2e `--shard` 分片）。
+
+## 典型应用场景
+
+- **composable 回归测试**：`useNotes` 是否使用固定 key 共享缓存、`getCachedData` 逻辑是否正确，改动即知。
+- **组件契约测试**：`NoteCard` 的 props 变化后渲染输出与链接目标是否符合预期，重构样式时兜底。
+- **关键链路 e2e**：登录 → 创建笔记 → 列表可见，每次发版前自动跑一遍，人工只验视觉细节。
+- **API 契约断言**：e2e 里直接用 `$fetch` 打服务端接口，绕过 UI 验证数据形状，比纯 UI 路径快且稳。
+- **PR 质量门禁**：覆盖率 thresholds + `typecheck` + `test` 串进 GitHub Actions，红即禁止合并。
+- **大团队并行**：e2e 用 `--shard=1/4` 切片，Node LTS 双版本矩阵，playwright 浏览器缓存复用。
+
+## 完整代码示例
+
+```ts
+// 文件: app/vitest.config.ts
+import { defineVitestConfig } from '@nuxt/test-utils/config';
+
+// 按目录分环境：纯函数在 node 里跑（快），依赖 Nuxt 运行时的进 nuxt 环境
+export default defineVitestConfig({
+    test: {
+        environmentMatchGlobs: [
+            ['tests/unit/**', 'node'],
+            ['tests/components/**', 'nuxt'],
+            ['tests/composables/**', 'nuxt'],
+            ['tests/e2e/**', 'node'] // e2e 由 @nuxt/test-utils/e2e 自行起 server
+        ],
+        coverage: {
+            provider: 'v8',
+            reporter: ['text', 'html'],
+            // 覆盖率门禁：低于阈值直接失败，在 PR 阶段就拦住退化
+            thresholds: {
+                lines: 80,
+                functions: 80,
+                branches: 70,
+                statements: 80
+            }
+        },
+        include: ['tests/**/*.test.ts', 'tests/e2e/**/*.spec.ts']
+    }
+});
+```
+
+> 运行方式：`npm install -D @nuxt/test-utils happy-dom` 后执行 `npm run test`；加 `--coverage` 查看覆盖率报告与门禁判定。
+
+```ts
+// 文件: app/tests/composables/useNotes.test.ts
+import { describe, expect, it, vi } from 'vitest';
+import { mockNuxtImport } from '@nuxt/test-utils/runtime';
+import { useNotes } from '~/composables/useNotes';
+
+// vi.hoisted：mock 宏提升到模块顶部执行，变量声明也要同步提升
+const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }));
+
+// 两层写法：外层工厂返回「useFetch 的实现函数」，调用参数落到 fetchMock 上
+mockNuxtImport('useFetch', () => {
+    return (url: string, opts?: Record<string, unknown>) => fetchMock(url, opts);
+});
+
+describe('useNotes', () => {
+    it('列表请求使用固定 key 以共享缓存', () => {
+        useNotes();
+        expect(fetchMock).toHaveBeenCalledWith(
+            '/api/notes',
+            expect.objectContaining({ key: 'notes-list' })
+        );
+    });
+
+    it('配置 getCachedData 优先命中 payload 缓存', () => {
+        useNotes();
+        const opts = fetchMock.mock.calls[0]?.[1] as Record<string, unknown>;
+        expect(typeof opts.getCachedData).toBe('function');
+    });
+});
+```
+
+> 运行方式：`npm run test`，该文件命中 `tests/composables/**` 的 nuxt 环境，`useFetch` 被替换为 mock，断言不产生真实网络请求。
+
+```ts
+// 文件: app/tests/components/NoteCard.test.ts
+import { describe, expect, it } from 'vitest';
+import { mountSuspended } from '@nuxt/test-utils/runtime';
+import NoteCard from '~/components/NoteCard.vue';
+import type { Note } from '#shared/types/note';
+
+const note: Note = {
+    id: 7,
+    title: '深入 Nitro',
+    excerpt: '服务端引擎一览',
+    content: '正文……',
+    tags: ['nitro', 'nuxt'],
+    createdAt: '2026-10-18T12:00:00'
+};
+
+describe('NoteCard', () => {
+    it('渲染标题、摘要并链接到详情页', async () => {
+        // mountSuspended：自动包 Suspense 并提供 Nuxt 上下文，支持 async setup
+        const wrapper = await mountSuspended(NoteCard, { props: { note } });
+        expect(wrapper.text()).toContain('深入 Nitro');
+        expect(wrapper.text()).toContain('服务端引擎一览');
+        // NuxtLink 在测试环境渲染为 stub，断言 to prop 比模拟真实跳转更稳
+        expect(wrapper.findComponent({ name: 'NuxtLink' }).props('to')).toBe('/notes/7');
+    });
+
+    it('为每个标签渲染一枚标签节点', async () => {
+        const wrapper = await mountSuspended(NoteCard, { props: { note } });
+        expect(wrapper.findAll('.note-tag')).toHaveLength(2);
+    });
+});
+```
+
+> 运行方式：`npm run test`，命中 `tests/components/**` 的 nuxt 环境；组件内自动导入的 `formatDate` 与 `NuxtLink` 均按真实应用行为解析。
+
+```ts
+// 文件: app/tests/e2e/notes.spec.ts
+import { describe, expect, it } from 'vitest';
+import { $fetch, createPage, setup } from '@nuxt/test-utils/e2e';
+
+// 页面对象模式：选择器与操作封装成稳定 API，页面改版只改这个类
+class NotesPage {
+    constructor(private page: Awaited<ReturnType<typeof createPage>>) {}
+    async goto() {
+        // 等待水合完成再交互，避免点击落在未激活的 DOM 上
+        await this.page.goto('/notes', { waitUntil: 'hydration' });
+    }
+    async search(keyword: string) {
+        await this.page.getByPlaceholder('搜索笔记…').fill(keyword);
+    }
+    cardCount() {
+        return this.page.locator('.note-card').count();
+    }
+}
+
+describe('笔记列表 e2e', async () => {
+    // 先 build 再对 .output/ 起真实 server，最接近生产行为
+    await setup({ build: true });
+
+    it('输入关键字后列表联动过滤', async () => {
+        const notes = new NotesPage(await createPage());
+        await notes.goto();
+        await notes.search('nuxt');
+        expect(await notes.cardCount()).toBeGreaterThan(0);
+    });
+
+    it('API 契约：列表接口返回数组', async () => {
+        // e2e 环境内置 $fetch，可直接断言服务端契约，省去 UI 绕行
+        const list = await $fetch('/api/notes');
+        expect(Array.isArray(list)).toBe(true);
+    });
+});
+```
+
+> 运行方式：`npx playwright install chromium && npx vitest run tests/e2e`，首次会先执行 `nuxi build`；迭代期可改 `setup({ dev: true })` 跳过构建提速，合并前再切回 `build: true`。
+
+## 最佳实践
+
+1. **金字塔配比写下来**：纯单测占七成、Nuxt 环境测试两成、e2e 一成；e2e 只守登录、下单这类「挂了就是事故」的链路，别用它测边角样式。
+2. **mock 只 mock 边界**：网络请求（`useFetch`/`$fetch`）、浏览器 API、第三方 SDK 可以 mock；自己的业务逻辑绝不 mock，否则测试在验证你的幻想。
+3. **`mockNuxtImport` 与 `vi.hoisted` 成对出现**：宏在模块求值前提升执行，普通变量声明来不及就位；忘记 hoisted 是最常见的「mock 不生效」原因。
+4. **e2e 交互前等水合**：`goto(url, { waitUntil: 'hydration' })` 消除「点了没反应」的抖动；选择器优先 `getByRole`/`getByPlaceholder` 这类用户可感知的定位器，少用语义脆弱的 class。
+5. **覆盖率门槛渐进收紧**：老项目先把 thresholds 定在现状值防退化，每个迭代上调 1~2 个点；一步到位定 90% 只会逼出为凑数而写的废测试。
+6. **CI 缓存与矩阵是免费午餐**：GitHub Actions 缓存 pnpm store 与 `~/.cache/ms-playwright`，Node 双版本矩阵并行，e2e 用 `--shard` 切片；测试慢是团队不写测试的第一借口，把它消灭掉。
+
+## 常见问题
+
+### Q：`mockNuxtImport` 写了却不生效，mock 完全没被调用？
+
+A：三个高频原因：文件不在 nuxt 环境（检查 `environmentMatchGlobs`）；宏引用的变量没放进 `vi.hoisted`（提升时序问题）；被测模块在 mock 注册之前就被 import 了——把 `mockNuxtImport` 保持在文件顶部、被测 import 之后引用即可（Vitest 会提升 import，但宏在转换期处理，顺序以官方文档写法为准）。
+
+### Q：`mountSuspended` 挂载报「async setup 需要 Suspense」或拿不到 Nuxt 上下文？
+
+A：确认两点：该测试文件命中了 nuxt 环境；`mountSuspended` 调用前有 `await`（它返回 Promise）。直接换用 `@vue/test-utils` 的 `mount` 会在依赖自动导入/插件的组件上失败，Nuxt 组件请统一走 `mountSuspended`。
+
+### Q：e2e 里 `setup({ build: true })` 太慢，日常开发怎么提速？
+
+A：调试单个用例时切 `setup({ dev: true })` 复用 dev server，或先用 `npm run build` 手动构建后让 setup 复用产物；CI 保持 `build: true` 保证对真实产物把关。另外 e2e 文件间用 `--shard` 并行能线性压缩总时长。
+
+### Q：老项目覆盖率只有 30%，thresholds 一定就全红怎么办？
+
+A：先把 thresholds 定在 25%（略低于现状）作为「防退化线」——不允许任何 PR 让覆盖率下降；新代码目录用 `coverage.thresholds` 的按路径配置单独定高标准。存量债务按模块排期清偿，逐季上调全局阈值。
+
+## 小结
+
+- `@nuxt/test-utils` 三模式：node 纯单测、nuxt 环境（composable/组件）、e2e（Playwright 打真实构建产物），按金字塔配比投入。
+- `mockNuxtImport` 用两层工厂 mock 自动导入的边界，配合 `vi.hoisted` 解决提升时序。
+- 组件用 `mountSuspended`（自动 Suspense + Nuxt 上下文），`NuxtLink` 断言 `to` prop。
+- e2e 用页面对象模式封装选择器、`waitUntil: 'hydration'` 等水合、`$fetch` 直接断言 API 契约。
+- 质量靠门禁不靠自觉：coverage thresholds 渐进收紧，CI 缓存 + 矩阵 + 分片压时长。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】`@nuxt/test-utils` 的三种测试模式各自跑在什么环境、分别适合测什么？</b></summary>
+
+node 纯单测跑在 Node 环境，适合 `utils/` 纯函数与工具库，速度最快；nuxt 环境测试在真实 Nuxt 实例中执行，自动导入、运行时配置、插件全部可用，适合 composable 与组件；e2e 用 Playwright 驱动浏览器访问构建产物起的真实 server，适合登录、下单等关键链路的端到端验证。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】`mockNuxtImport('useFetch', () =&gt; (url, opts) =&gt; mock(url, opts))` 为什么要写成「工厂返回实现函数」的两层结构？</b></summary>
+
+自动导入的 composable 是「调用后返回结果」的函数。外层工厂在模块加载时执行一次，返回的才是被测代码里 `useFetch(...)` 真正调用的实现。这样每次调用参数都落到内层 mock 函数上，断言时可以检查调用次数与参数；若只写一层，`useFetch` 会被替换成工厂本身的返回值，失去对调用的捕获能力。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】页面对象模式（Page Object）在 e2e 中解决了什么问题？什么项目可以跳过它？</b></summary>
+
+它把选择器与交互步骤封装为稳定的类 API，用例只表达业务意图。收益有二：页面结构改版时只需改页面对象一处，几十个用例免于连锁修改；选择器策略（如 getByRole 优先）得以统一贯彻。一次性脚本、用例总数个位数的个人小项目可以跳过——抽象本身也是成本，页面对象的回报随用例规模与协作人数增长。
+
+</details>
+
+
+---
+
+<!-- 来源：23-ecosystem-solutions.md -->
+
+# 23. Nuxt 生态主流方案
+
+> 本章示例：`app/nuxt.config.ts`、`app/pages/docs/[...slug].vue`、`app/pages/index.vue`、`app/server/api/auth/github.get.ts`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/` 与 `http://localhost:3000/docs/getting-started`
+
+## 概念解析
+
+**Nuxt 生态的第一性原理是「优先官方模块，再社区，最后自研」**。官方模块（`@nuxt/ui`、`@nuxt/content`、`@nuxt/image`、`@nuxtjs/i18n`、`@nuxtjs/seo`）由核心团队维护，跟随 Nuxt 大版本同步升级，自动导入、类型、devtools 全部就位；它们解决的是「几乎每个项目都要做」的通用问题，自研一套不仅重复造轮子，还会在每次升级时付出兼容成本。选型的关键不是「装什么」而是「何时装」——按需引入，每加一个模块都对应一个明确的产品需求。
+
+**`@nuxt/ui` 是组件库 + 设计系统的合体**：基于 Tailwind 与 Reka UI（无头组件），按钮、表单、弹窗等组件用语义化 props（`color`、`variant`、`size`）代替手写类名，主题通过 `app.config.ts` 的 `ui` 键集中定制，设计令牌一处改全站生效。它与普通 Tailwind 项目共存无冲突，因为组件样式由模块注入、不动你的配置文件。**`@nuxt/content` 把 Git 仓库变成 CMS**：`content/` 目录下的 Markdown/JSON/CSV 自动入库，组件里用 `queryCollection`（v3；v2 为 `queryContent`）按路径查询、`<ContentRenderer>` 渲染，配合 frontmatter 与 `useSeoMeta`，一个文档站/博客的骨架半天就能立起来——但记住它是内容层不是数据库，写操作复杂、需要权限与并发控制的场景请用真数据库。
+
+**`@nuxt/image` 内置 IPX 按需图像优化**：`<NuxtImg>` 自动生成 `srcset`、按容器宽度请求缩放后的图片、协商 webp/avif 格式，LCP 图片体积常常直接砍掉 70%。SSR/Node 部署零配置；全静态或边缘部署时 IPX 需要一个函数运行时，否则改用 `provider` 切到 Cloudinary/云厂商的图片服务。**认证的两个主流选项分工不同**：`nuxt-auth-utils` 是官方系工具集，`defineOAuthGitHubEventHandler` 等事件处理器 + `setUserSession` 加密 Cookie 会话，几十行完成 OAuth 全流程，适合自有后端；`sidebase/nuxt-auth` 封装 Auth.js，面向「对接 NextAuth 生态提供者」或需要 credentials + 多 provider 统一抽象的跨栈团队。
+
+**`@nuxtjs/i18n` 与 `@nuxtjs/seo` 要一起规划**：i18n 的 `strategy: 'prefix_except_default'` 给非默认语言加 URL 前缀，配合 `useLocaleHead` 自动输出 `hreflang`，搜索引擎才能把多语言页面当作独立可索引实体；SEO 套件（`@nuxtjs/seo`）则打包了 sitemap、robots、OG Image、结构化数据等子模块，OG Image 用 Vue 组件定义分享卡片、构建/运行时渲染成 PNG。**`@vite-pwa/nuxt` 把 Workbox 包成配置**：`registerType: 'autoUpdate'` 让新 Service Worker 自动接管，`workbox` 键配置预缓存与运行时缓存策略——务必把 `/api/**` 排除在导航回退之外，否则离线兜底 HTML 会污染接口响应。
+
+模块按项目类型的典型组合如下表（「●」强烈推荐，「○」按需）：
+
+| 项目类型 | UI | Content | Image | i18n | SEO | PWA | 认证 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 文档站/博客 | ○ | ● | ● | ○ | ● | ○ | — |
+| 营销落地页 | ● | ○ | ● | ● | ● | ○ | — |
+| SaaS 后台 | ● | — | ○ | ● | — | ○ | ● |
+| 内容社区 | ● | ● | ● | ○ | ● | ● | ● |
+| 内部工具 | ● | — | — | ○ | — | — | ● |
+
+## 典型应用场景
+
+- **半天搭文档站**：`@nuxt/content` + `@nuxt/ui` 的 prose 排版 + `@nuxtjs/seo` 的 sitemap，`content/docs/` 里写 Markdown 即成站。
+- **图片重的内容站**：`<NuxtImg>` 全站替换 `<img>`，远端图床域名配 `image.domains` 白名单，LCP 从 4s 压到 1.5s。
+- **GitHub 登录的 SaaS**：`nuxt-auth-utils` 的 OAuth 事件处理器 + `useUserSession()` 客户端读取，免自建回调与会话存储。
+- **出海多语言站**：i18n `prefix_except_default` + 懒加载语言包 + `hreflang`，每种语言独立 URL 利于收录。
+- **营销活动页**：PWA 离线可用 + OG Image 组件化分享卡片，弱网与社交传播两个场景都拿分。
+- **设计统一的中后台**：`@nuxt/ui` 主题令牌定制品牌色，业务代码里不再出现裸类名调色。
+
+## 完整代码示例
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    modules: [
+        '@pinia/nuxt',
+        '@nuxt/ui',       // 组件库（内置 Tailwind 与无头组件）
+        '@nuxt/content',  // 文件驱动 CMS
+        '@nuxt/image',    // IPX 图片优化
+        '@nuxtjs/i18n',   // 国际化
+        '@vite-pwa/nuxt'  // PWA / Workbox
+    ],
+    // i18n：非默认语言加 URL 前缀，语言包懒加载
+    i18n: {
+        locales: [
+            { code: 'zh', file: 'zh.json', name: '简体中文' },
+            { code: 'en', file: 'en.json', name: 'English' }
+        ],
+        defaultLocale: 'zh',
+        strategy: 'prefix_except_default',
+        lazy: true,
+        langDir: 'locales/'
+    },
+    // image：远端图床域名显式白名单，格式优先现代编码
+    image: {
+        quality: 80,
+        format: ['webp', 'avif'],
+        domains: ['cdn.example.com']
+    },
+    // pwa：新版本自动接管；API 不走进离线导航回退
+    pwa: {
+        registerType: 'autoUpdate',
+        manifest: {
+            name: 'Nuxt LearnHub',
+            short_name: 'LearnHub',
+            theme_color: '#00dc82',
+            icons: [{ src: '/pwa-192.png', sizes: '192x192', type: 'image/png' }]
+        },
+        workbox: {
+            navigateFallbackDenylist: [/^\/api\//]
+        }
+    },
+    compatibilityDate: '2025-07-15'
+});
+```
+
+> 运行方式：`npm install @nuxt/ui @nuxt/content @nuxt/image @nuxtjs/i18n @vite-pwa/nuxt` 后 `npm run dev`；访问 `http://localhost:3000/en/` 验证语言前缀路由，DevTools Application 面板可见 Service Worker 注册。
+
+```vue
+<!-- 文件: app/pages/docs/[...slug].vue -->
+<script setup lang="ts">
+    const route = useRoute();
+
+    // Content v3：queryCollection 查询 content/docs/ 集合
+    //（v2 写法为 queryContent(route.path).findOne()）
+    const { data: doc } = await useAsyncData(`doc-${route.path}`, () =>
+        queryCollection('docs').path(route.path).first()
+    );
+    if (!doc.value) {
+        throw createError({ statusCode: 404, statusMessage: '文档不存在' });
+    }
+    // frontmatter 里的 title/description 直接喂给 SEO
+    useSeoMeta({
+        title: doc.value.title,
+        description: doc.value.description
+    });
+</script>
+
+<template>
+    <main class="prose">
+        <!-- ContentRenderer 渲染 Markdown AST，代码高亮/TOC 开箱即用 -->
+        <ContentRenderer :value="doc" />
+    </main>
+</template>
+```
+
+> 运行方式：新建 `app/content/docs/getting-started.md`（含 frontmatter `title` 与正文）后访问 `http://localhost:3000/docs/getting-started`，页面标题即取自 frontmatter。
+
+```vue
+<!-- 文件: app/pages/index.vue -->
+<script setup lang="ts">
+    import type { Note } from '#shared/types/note';
+
+    const { data: notes } = await useFetch<Note[]>('/api/notes', { default: () => [] });
+</script>
+
+<template>
+    <main>
+        <header>
+            <!-- Nuxt UI：语义化 props 代替手写类名 -->
+            <UButton color="primary" to="/notes">全部笔记</UButton>
+            <!-- Nuxt Image：按容器宽度生成 srcset，自动协商 webp/avif -->
+            <NuxtImg
+                src="/cover.jpg"
+                width="800"
+                height="400"
+                sizes="sm:100vw md:800px"
+                alt="LearnHub 封面"
+            />
+        </header>
+        <div class="note-grid">
+            <UCard v-for="note in notes" :key="note.id">
+                <template #header>{{ note.title }}</template>
+                <p>{{ note.excerpt }}</p>
+                <template #footer>
+                    <UButton variant="link" :to="`/notes/${note.id}`">阅读全文</UButton>
+                </template>
+            </UCard>
+        </div>
+    </main>
+</template>
+```
+
+> 运行方式：访问 `http://localhost:3000/`，DevTools Network 面板可见封面图按视口宽度请求到缩放后的 webp 版本；卡片组件样式由 `@nuxt/ui` 主题统一驱动。
+
+```ts
+// 文件: app/server/api/auth/github.get.ts
+// nuxt-auth-utils：OAuth 全托管——跳转、回调、换取用户资料、写会话一条龙
+export default defineOAuthGitHubEventHandler({
+    config: {
+        // clientId/clientSecret 从 NUXT_OAUTH_GITHUB_CLIENT_ID 等环境变量注入
+        emailRequired: true
+    },
+    async onSuccess(event, { user }) {
+        // 写入 httpOnly + 加密的会话 Cookie；客户端用 useUserSession() 读取
+        await setUserSession(event, {
+            user: { name: user.login, avatar: user.avatar_url }
+        });
+        return sendRedirect(event, '/dashboard');
+    },
+    onError(event, error) {
+        console.error('GitHub OAuth 失败', error);
+        return sendRedirect(event, '/login?error=oauth');
+    }
+});
+```
+
+> 运行方式：`npm install nuxt-auth-utils` 并在 GitHub OAuth App 后台把回调地址填为 `http://localhost:3000/api/auth/github`，配置环境变量后访问 `http://localhost:3000/login` 点击 GitHub 登录，成功后跳转 `http://localhost:3000/dashboard` 且会话 Cookie 已写入。
+
+## 最佳实践
+
+1. **官方优先、按需引入**：每加一个模块对应一个明确需求；「全家桶先装上再说」会拖慢冷启动、放大升级面，也增加模块间相互踩脚的概率。
+2. **一次只引入一个模块并跑通再叠加**：组合冲突（两个模块都注册同名 composable、都注入 Tailwind、都改 vite 配置）是生态实践的第一大坑，逐个引入能把问题定位范围缩到最小。
+3. **锁定 minor 版本、升级前读 changelog**：官方模块跟随 Nuxt 主版本节奏，跨 minor 常有配置项更名（如 Content v2 的 `queryContent` 到 v3 的 `queryCollection`），升级后立即跑 `typecheck` 与测试兜底。
+4. **Content 只做内容层**：Markdown 驱动的页面、文档、博客很合适；需要写操作、权限、事务的数据请用数据库 + Nitro API，别拿 Git 当后端。
+5. **i18n 与 SEO 同步设计**：多语言站从第一天就定 `strategy`、`hreflang` 与按 locale 拆分的 sitemap，上线后再改 URL 结构等于让搜索引擎重新认识你的网站。
+6. **图片域名显式白名单**：`image.domains`（或 `remotePatterns`）只放自己的图床，防止 IPX 被当成开放代理去抓取任意第三方图片。
+
+## 常见问题
+
+### Q：项目已经手写了一套 Tailwind 组件，还能上 `@nuxt/ui` 吗？
+
+A：可以渐进迁移——`@nuxt/ui` 自带 Tailwind 集成且不与你的配置冲突，新页面直接用 UI 组件、旧组件按页面逐步替换；主题令牌在 `app.config.ts` 的 `ui` 键里对齐品牌色，避免两套视觉语言长期并存。
+
+### Q：`queryCollection('docs')` 查不到任何内容？
+
+A：按顺序排查：`content/docs/` 目录是否存在且文件扩展名受支持（`.md` 等）；v3 要求 `content.config.ts` 里用 `defineCollection` 声明 `docs` 集合；路径参数是文档的 `path` 字段而非文件系统路径。dev 下改动 `content.config.ts` 需要重启生效。
+
+### Q：`<NuxtImg>` 本地正常、部署到静态托管后全部 404？
+
+A：IPX 需要一个运行时才存在。`nuxi generate` 全静态部署时没有服务器执行优化，要么把请求的图片在 `nitro.prerender` 里预热生成，要么配置 `image.provider` 切到 Cloudinary/云厂商图片服务这类外部 provider。
+
+### Q：`nuxt-auth-utils` 和 `sidebase/nuxt-auth` 怎么选？
+
+A：自有 Nitro 后端、想要最小抽象的会话管理，选 `nuxt-auth-utils`（官方系、Cookie 会话加密、各 OAuth provider 一个事件处理器）；团队熟悉 Auth.js/NextAuth、或需要对接其庞大的 provider 生态与 credentials 登录统一抽象，选 `sidebase/nuxt-auth`。两者不共存，选型即二选一。
+
+## 小结
+
+- 选型三问：官方模块能不能解决？是不是当前迭代就需要？组合冲突排查过没有？
+- 五大件分工：UI 管设计系统、Content 管 Markdown 内容、Image 管 LCP 图片、i18n + SEO 管多语言收录、PWA 管离线与安装。
+- 认证二选一：`nuxt-auth-utils`（自有后端、Cookie 会话）或 `sidebase/nuxt-auth`（Auth.js 生态）。
+- 静态部署记住 IPX 需要运行时；Content v3 用 `queryCollection` 且集合要在 `content.config.ts` 声明。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】为什么推荐 i18n 用 `prefix_except_default` 策略而不是 `no_prefix`？</b></summary>
+
+`no_prefix` 下所有语言共享同一批 URL，靠 Cookie/头区分语言，搜索引擎无法把各语言版本当作独立页面索引，分享链接也无法携带语言信息。`prefix_except_default` 给非默认语言独立 URL 前缀（如 `/en/about`），配合 `hreflang` 标注，多语言页面才能被正确收录与传播。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】`@nuxt/content` 适合做什么、不适合做什么？各举一个例子。</b></summary>
+
+适合 Git 工作流驱动的只读内容：文档站、博客、 changelog——内容即代码，评审、版本、回滚都走 Git。不适合需要写操作与并发控制的场景，例如用户发布的笔记、评论：Content 没有事务、权限与实时写入能力，这类数据应落数据库、经 Nitro API 读写。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】引入两个模块后出现诡异冲突（如自动导入重名、样式被覆盖），系统化的排查路径是什么？</b></summary>
+
+先二分定位：临时移除其中一个模块确认冲突对，再用 `nuxi devtools` 检查自动导入来源与模块注册顺序；自动导入重名可在模块配置里改 `prefix` 规避，样式冲突检查两边 Tailwind content 扫描路径与层叠优先级（`@layer`）；版本兼容问题核对模块的 Nuxt 版本要求（`compatibility` 字段）是否覆盖当前版本。根治习惯是「一次只加一个模块、跑通再叠加」，把冲突定位范围天然缩到最小。
+
+</details>
+
+
+---
+
+<!-- 来源：24-observability.md -->
+
+# 24. 可观测性与生产调优
+
+> 本章示例：`app/server/plugins/observability.ts`、`app/plugins/web-vitals.client.ts`、`app/pages/dashboard.vue`、`app/composables/useFeatureFlag.ts`
+> 运行方式：`cd app && npm install && npm run build && node .output/server/index.mjs`，浏览器访问 `http://localhost:3000/dashboard`
+
+## 概念解析
+
+**可观测性的三支柱——日志、指标、链路追踪——在 Nuxt 里要覆盖「浏览器 + Nitro」两个运行时**，这正是全栈框架区别于纯前端的地方：一次用户点击可能经过浏览器渲染、Nitro SSR、内部 API、上游微服务四跳，任何一跳出问题都会表现为「页面打不开」。落地顺序建议从日志开始：Nuxt/Nitro 内置的 `consola` 适合开发期，生产应输出**结构化 JSON 日志**（每行一个 JSON 对象，字段含 `traceId`、`path`、`status`、`durationMs`），交给 Loki/ELK/Datadog 采集后按字段检索，而不是在文本里 grep。串联全链路的关键是 **trace id**：请求进 Nitro 时生成或继承上游的 `x-trace-id`，写入响应头、日志，以及转发给上游的每一个 `$fetch` 请求头——这就是轻量版 OpenTelemetry 的精髓；接完整 OTel SDK 则再加 span 与 collector（Jaeger/Zipkin），中等规模团队先用「trace id + JSON 日志」就能覆盖八成排障场景。
+
+**错误追踪的核心不是「接到报错」而是「能定位到源码」**。Sentry 在 Nuxt 里要接两端：客户端（Vue 错误、未捕获 Promise）与 Nitro 服务端（API 异常、SSR 渲染失败）。构建产物是压缩混淆过的，必须**上传 source map 并在上传后从产物中删除**（既还原始堆栈又不泄露源码），同时用 `release` 把错误与版本关联——线上报错一看就知道是哪个发布引入的。客户端侧的兜底是 `NuxtErrorBoundary`：全局 `error.vue` 是整页崩溃的最后防线，而错误边界让次要模块（侧栏推荐、营销挂件）失败时**局部降级**，页面主体照常可用，配合 `#error` 插槽给出重试入口。
+
+**性能观测分两条线：服务端响应时间看日志里的 `durationMs`，真实用户体验看 Web Vitals**。`web-vitals` 库采集 LCP（加载）、INP（交互）、CLS（稳定性），上报用 `navigator.sendBeacon`——它不阻塞主线程、页面卸载时浏览器仍保证送达，这是 `fetch` 做不到的。上报端点 `/api/vitals` 只是个 `readBody` 落库的 Nitro 路由，按页面路径聚合后看 P75 分位；大流量站点在采集端做 10% 采样控制成本。Feature flag 则是「灰度发布」的载体：开关放在 `runtimeConfig.public` 里（服务端渲染下发、运行时改环境变量即生效、无需重建），按用户 ID 做一致性哈希分桶，实现 5% → 50% → 100% 的渐进放量，出问题把 flag 一关就是秒级回滚。
+
+**生产调优是一份清单而非玄学**。Node 侧：`NODE_OPTIONS=--max-old-space-size=2048` 按容器内存水位调整堆上限；开 `NODE_ENV=production`（Nuxt 构建产物已默认，但自己起进程时要确认）。Nitro 侧：preset 必须与部署目标匹配（`node-server`/`vercel`/`cloudflare-pages`），静态路由用第 15 章的 `routeRules` 卸到缓存层。架构侧：无状态 Nuxt 实例可直接水平扩容 + 负载均衡，会话存 Cookie 或外部 Redis、别依赖实例内存；提供 `/api/health` 健康检查端点给 LB 探活；进程收到 `SIGTERM` 时停止接新连接、处理完在途请求再退出（PM2/Docker 环境下这决定滚动发布是否掉请求）。
+
+## 典型应用场景
+
+- **线上 500 排查**：JSON 日志按 `traceId` 一搜，同一请求的 SSR、API、上游调用记录全部串出，分钟级定位到失败跳。
+- **发版质量看护**：Sentry 按 `release` 对比新旧版本错误率，新版本错误率飙升自动告警，决定继续放量还是回滚。
+- **性能预算巡检**：Web Vitals 按页面聚合 P75，LCP 超 2.5s 的页面进优化 backlog，用数据而不是感觉排优先级。
+- **局部故障降级**：侧栏「猜你喜欢」接口超时，`NuxtErrorBoundary` 只让它自己变成重试卡片，正文阅读不受任何影响。
+- **新功能灰度**：feature flag 按用户 ID 分桶放量，客服反馈异常时改一个环境变量即全量关闭，无需重新部署。
+- **滚动发布不掉请求**：K8s/Docker 下发 `SIGTERM` 后完成在途请求再退出，配合健康检查端点实现零停机部署。
+
+## 完整代码示例
+
+```ts
+// 文件: app/server/plugins/observability.ts
+// Nitro 插件：trace id 生成/继承 + 请求级结构化 JSON 日志
+import { randomUUID } from 'node:crypto';
+
+export default defineNitroPlugin((nitroApp) => {
+    nitroApp.hooks.hook('request', (event) => {
+        // 上游带来 trace id 则续链，否则开新链；写入响应头便于客户端/网关对齐
+        const traceId = getRequestHeader(event, 'x-trace-id') ?? randomUUID();
+        event.context.traceId = traceId;
+        event.context.startAt = performance.now();
+        setResponseHeader(event, 'x-trace-id', traceId);
+    });
+
+    nitroApp.hooks.hook('afterResponse', (event) => {
+        const status = event.node.res.statusCode;
+        const durationMs = Number((performance.now() - (event.context.startAt ?? 0)).toFixed(1));
+        // 一行一个 JSON：采集进 Loki/ELK 后可按字段检索与聚合
+        console.log(JSON.stringify({
+            level: status >= 500 ? 'error' : 'info',
+            traceId: event.context.traceId,
+            method: event.method,
+            path: getRequestURL(event).pathname,
+            status,
+            durationMs
+        }));
+    });
+});
+```
+
+> 运行方式：`npm run build && node .output/server/index.mjs`，访问任意页面后观察 stdout 的 JSON 日志；响应头中的 `x-trace-id` 与日志里的 `traceId` 一一对应。转发上游时在 `$fetch(url, { headers: { 'x-trace-id': event.context.traceId } })` 中续链。
+
+```ts
+// 文件: app/plugins/web-vitals.client.ts
+// Web Vitals 采集：仅客户端运行，sendBeacon 保证页面卸载时也能送达
+import { onCLS, onINP, onLCP, type Metric } from 'web-vitals';
+
+export default defineNuxtPlugin(() => {
+    // 10% 采样：大流量站点控制上报成本
+    if (Math.random() > 0.1) return;
+    const report = (metric: Metric) => {
+        const payload = JSON.stringify({
+            name: metric.name,
+            value: metric.value,
+            path: location.pathname
+        });
+        // sendBeacon 不阻塞主线程，页面关闭时浏览器仍负责送达（fetch 做不到）
+        navigator.sendBeacon('/api/vitals', payload);
+    };
+    onLCP(report); // 加载：LCP 超 2.5s 即需优化
+    onINP(report); // 交互：INP 超 200ms 说明主线程太堵
+    onCLS(report); // 稳定：CLS 超 0.1 说明布局在跳动
+});
+```
+
+> 运行方式：`npm install web-vitals` 后新建 `app/server/api/vitals.post.ts`（`readBody` 后落库或先打日志），`npm run dev` 访问几个页面，在 vitals 端点日志中观察 LCP/INP/CLS 上报记录。
+
+```vue
+<!-- 文件: app/pages/dashboard.vue -->
+<script setup lang="ts">
+    // 区块级错误隔离：次要模块挂了不拖垮整页
+    const boundaryError = ref<Error | null>(null);
+
+    function retryWidget() {
+        // 清除错误状态即触发边界内子树重新渲染
+        boundaryError.value = null;
+    }
+</script>
+
+<template>
+    <main>
+        <h1>工作台</h1>
+        <NuxtErrorBoundary @error="boundaryError = $event">
+            <!-- 次要挂件：接口超时/渲染异常只影响这一块 -->
+            <LatestNotesWidget />
+            <template #error="{ error }">
+                <div class="widget-fallback">
+                    <p>最新动态加载失败：{{ error.message }}</p>
+                    <button type="button" @click="retryWidget">重试</button>
+                </div>
+            </template>
+        </NuxtErrorBoundary>
+    </main>
+</template>
+```
+
+> 运行方式：访问 `http://localhost:3000/dashboard`，在 `LatestNotesWidget` 依赖的接口里临时 `throw createError(...)` 可看到降级卡片与重试按钮，页面其余部分正常；重试后子树重新挂载。
+
+```ts
+// 文件: app/composables/useFeatureFlag.ts
+// Feature flag：runtimeConfig 运行时下发开关 + 用户 ID 一致性分桶渐进放量
+export function useFeatureFlag(flag: string, userId?: string) {
+    const { public: { featureFlags } } = useRuntimeConfig();
+    const rule = featureFlags?.[flag] as { enabled?: boolean; percentage?: number } | undefined;
+
+    return computed(() => {
+        if (!rule?.enabled) return false;
+        const pct = rule.percentage ?? 100;
+        if (pct >= 100) return true;
+        if (!userId) return false;
+        // 简单一致性哈希：同一用户永远落在同一桶，体验不随刷新跳变
+        let hash = 0;
+        for (const ch of `${flag}:${userId}`) {
+            hash = (hash * 31 + ch.charCodeAt(0)) % 100;
+        }
+        return hash < pct;
+    });
+}
+```
+
+> 运行方式：`nuxt.config.ts` 的 `runtimeConfig.public.featureFlags` 中加入 `newEditor: { enabled: true, percentage: 5 }`，页面里 `useFeatureFlag('newEditor', user.value?.id)` 控制新编辑器渲染；生产用 `NUXT_PUBLIC_FEATURE_FLAGS` 环境变量调整比例，改完重启进程即生效、无需重建。
+
+## 最佳实践
+
+1. **日志只认结构化 JSON**：每行一个对象、字段固定（`traceId`/`path`/`status`/`durationMs`），杜绝自由文本——检索与聚合能力在写日志那一刻就决定了。
+2. **trace id 贯穿每一次转发**：Nitro 里 `$fetch` 调上游必须带 `x-trace-id`；客户端上报错误时从响应头取同一 id，前后端记录一键关联。
+3. **source map 上传后即删**：Sentry 上传产物 `.map` 文件并在发布流程中从 `.output/public` 移除，错误栈还原与源码保护兼得；`release` 用 git commit hash 保证错误与版本严格对应。
+4. **Vitals 看 P75 不看均值**：均值会被高速用户掩盖长尾；按页面路径聚合 P75 设预算告警，采集端按需采样控制成本。
+5. **错误边界只包次要模块**：`NuxtErrorBoundary` 的粒度是「挂了不影响主流程的挂件」；主流程链路（正文、下单）应保证自身健壮，全局兜底交给 `error.vue`。
+6. **调优清单进发布流程**：preset 匹配平台、`--max-old-space-size` 按容器水位设定、`/api/health` 探活、多实例无状态 + 会话外置、`SIGTERM` 优雅退出——逐条打勾才算上线就绪。
+
+## 常见问题
+
+### Q：开发期 `console.log` 一把梭，上线后为什么必须换结构化日志？
+
+A：文本日志只能全文 grep，没法回答「P95 响应时间」「5xx 集中在哪些路径」这类聚合问题；多实例部署时日志分散在各容器，没有 `traceId` 根本无法把一次请求的记录拼起来。结构化 JSON 是让日志从「打印」变成「数据」的最低成本改造。
+
+### Q：Sentry 收到的错误堆栈全是混淆后的代码，定位不到源码？
+
+A：source map 没有随构建上传，或上传时的 `release` 与事件里的 `release` 不一致。在 CI 构建后执行 Sentry 的 sourcemap 上传（以 git commit hash 作为 release 名），并在上传成功后从产物目录删除 `.map` 文件，再核对 SDK 初始化时传入同一个 release。
+
+### Q：直接接完整 OpenTelemetry SDK 太重，有没有轻量起步方案？
+
+A：有，分两步走：第一步只实现「trace id 生成/继承 + JSON 日志 + 转发透传」（本章示例即此方案，约 30 行），覆盖跨服务关联排查；当服务拓扑复杂到需要可视化火焰图时，第二步再引入 OTel SDK 与 collector（Jaeger/Zipkin），trace id 方案与 OTel 的 `traceparent` 语义兼容，迁移无痛。
+
+### Q：feature flag 和 A/B 测试有什么区别？
+
+A：flag 关注工程风险控制——按桶放量、随时关闭，验证的是「不出事故」；A/B 测试关注产品效果——分组对照、统计显著性，验证的是「哪个方案更好」。两者共用分桶机制但目标不同：上线新功能先 flag 灰度守稳定性，稳定后再跑 A/B 看转化。
+
+## 小结
+
+- 三支柱落地顺序：结构化 JSON 日志 + trace id 先行，Sentry 双端接错误，OTel 全量 SDK 按需后补。
+- Sentry 三件套：source map 上传后删除、`release` 绑定版本、客户端 + Nitro 双端接入。
+- Web Vitals 用 `web-vitals` + `sendBeacon` 上报，按页面聚合 P75 设预算；`NuxtErrorBoundary` 给次要模块局部降级。
+- feature flag 放 `runtimeConfig.public`，一致性哈希分桶渐进放量，改环境变量即回滚。
+- 生产调优清单：Node 堆内存、Nitro preset、健康检查、无状态水平扩容、`SIGTERM` 优雅退出。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】上报 Web Vitals 为什么用 `navigator.sendBeacon` 而不是 `$fetch`？</b></summary>
+
+`sendBeacon` 不阻塞主线程，且页面卸载（关闭、跳转）时浏览器仍保证把数据送达——这恰好是 LCP、CLS 等指标最常需要上报的时刻；普通 `fetch` 在页面卸载时会被中断，导致最差的那批体验数据恰恰丢失，统计结果系统性偏乐观。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】`NuxtErrorBoundary` 与全局 `error.vue` 的分工是什么？</b></summary>
+
+`error.vue` 是整页级最后防线：路由级渲染失败、未捕获的全局错误由它接管，用户看到整页错误页。`NuxtErrorBoundary` 是区块级隔离：把次要模块（挂件、侧栏）包起来，失败时只降级该区块并可通过 `#error` 插槽提供重试，页面主体不受影响。原则是能局部消化就不惊动全局——主流程靠自己的健壮性，非主流程靠错误边界。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】为什么放在 `runtimeConfig.public` 里的 feature flag「改环境变量即生效、无需重建」？依赖这一特性时要注意什么？</b></summary>
+
+`runtimeConfig` 的覆盖发生在服务启动（运行时）而非构建时：SSR 每次渲染都会读取当前生效的配置并序列化进 payload 下发，因此重启进程后新 flag 立即全站生效。注意三点：改动需重启进程才读取；客户端渲染页面在导航间隙才刷新配置，要求强一致的场景要在关键操作前重新拉取；`public` 下的 flag 对用户可见，只能用于功能放量，绝不能当权限控制用。
+
+</details>

@@ -1,0 +1,58 @@
+{
+  "ep": 2,
+  "slug": "EP.02-routing",
+  "title": "路由的约定之力",
+  "part": "docs/02-routing",
+  "panels": [
+    {
+      "title": "困境：路由忘注册",
+      "speaker": "jun",
+      "bubble": ["新页面又忘了注册，", "动态参数正则写错，", "线上直接 404 了！"],
+      "code": [
+        "// vue-router 手搓时代",
+        "{ path: '/post/:id' }",
+        { "t": "// 新页面忘了 import", "c": "#fbbf24" },
+        { "t": "// 路由表 300 行没人敢动", "c": "#f472b6" }
+      ],
+      "note": ["路由表越长，注册遗漏越多。", "动态参数全靠人肉正则维护。"]
+    },
+    {
+      "title": "揭秘：目录即路由",
+      "speaker": "shu",
+      "bubble": ["Nuxt 只认 app/pages/：", "文件名就是路径，", "方括号就是动态参数。"],
+      "code": [
+        "app/pages/index.vue → /",
+        "app/pages/about.vue → /about",
+        "app/pages/post/[id].vue → 动态",
+        "app/pages/[...slug].vue → 通配",
+        { "t": "// 建文件即建路由", "c": "#34d399" }
+      ],
+      "note": ["目录结构即路由表，一眼可审计。", "[id] 单参数，[...slug] 捕获多段。"]
+    },
+    {
+      "title": "实证：导航与守卫",
+      "speaker": "jiang",
+      "bubble": ["跳转用 navigateTo，", "守路由用中间件，", "我给后台加把锁！"],
+      "code": [
+        "// app/middleware/auth.ts",
+        "export default",
+        "  defineNuxtRouteMiddleware((to) => {",
+        "    if (!useCookie('token').value)",
+        "      return navigateTo('/login')",
+        "  })"
+      ],
+      "note": ["navigateTo 在 SSR 与客户端都安全。", "middleware 目录下的守卫按名引用。"]
+    },
+    {
+      "title": "结案：路由三件套",
+      "speaker": "shu",
+      "bubble": ["路由交给目录约定，", "跳转交给 navigateTo，", "守卫交给中间件。"],
+      "pitfalls": [
+        "动态路由文件别忘 .vue 后缀",
+        "navigateTo 要 return 中断执行",
+        "全局中间件注意执行顺序"
+      ],
+      "summary": "目录即路由，中间件守门。"
+    }
+  ]
+}

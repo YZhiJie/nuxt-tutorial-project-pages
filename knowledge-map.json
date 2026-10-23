@@ -1,0 +1,885 @@
+{
+  "generatedAt": "2026-10-23T08:03:44.032Z",
+  "parts": [
+    {
+      "file": "01-what-is-nuxt.md",
+      "title": "01. Nuxt 4 全景认知",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "02-scaffolding.md",
+      "title": "02. 项目初始化与开发环境",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "03-file-based-routing.md",
+      "title": "03. 文件路由与动态路由",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "04-navigation-middleware.md",
+      "title": "04. 导航与路由中间件",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "05-components.md",
+      "title": "05. 组件开发与自动导入",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "06-layouts.md",
+      "title": "06. 布局系统与页面过渡",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "07-usefetch.md",
+      "title": "07. useFetch 与 useAsyncData",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "08-fetch-advanced.md",
+      "title": "08. $fetch 与请求进阶",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "09-usestate.md",
+      "title": "09. useState 与 SSR 状态",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "10-composables-pinia.md",
+      "title": "10. composables 与 Pinia",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "11-server-api.md",
+      "title": "11. Nitro 服务端 API",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "12-fullstack.md",
+      "title": "12. 全栈实战：存储与鉴权",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "13-plugins-modules-seo.md",
+      "title": "13. 插件、模块与 SEO",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "14-typescript-testing.md",
+      "title": "14. TypeScript 与测试",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "15-build-prerender.md",
+      "title": "15. 构建与预渲染策略",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "16-deploy.md",
+      "title": "16. 部署上线全攻略",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "漫画对应章节",
+          "anchor": "漫画对应章节"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "17-rendering-internals.md",
+      "title": "17. Nuxt 渲染内部机制",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "18-performance.md",
+      "title": "18. 性能优化与 Core Web Vitals",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "19-data-caching.md",
+      "title": "19. 数据缓存与状态一致性",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "20-large-scale-architecture.md",
+      "title": "20. 大型 Nuxt 应用架构",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "21-security.md",
+      "title": "21. Nuxt 安全实战",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "22-testing-advanced.md",
+      "title": "22. 测试体系进阶",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "23-ecosystem-solutions.md",
+      "title": "23. Nuxt 生态主流方案",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    },
+    {
+      "file": "24-observability.md",
+      "title": "24. 可观测性与生产调优",
+      "sections": [
+        {
+          "text": "概念解析",
+          "anchor": "概念解析"
+        },
+        {
+          "text": "典型应用场景",
+          "anchor": "典型应用场景"
+        },
+        {
+          "text": "完整代码示例",
+          "anchor": "完整代码示例"
+        },
+        {
+          "text": "最佳实践",
+          "anchor": "最佳实践"
+        },
+        {
+          "text": "常见问题",
+          "anchor": "常见问题"
+        },
+        {
+          "text": "小结",
+          "anchor": "小结"
+        },
+        {
+          "text": "自测题",
+          "anchor": "自测题"
+        }
+      ]
+    }
+  ]
+}

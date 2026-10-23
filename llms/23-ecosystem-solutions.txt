@@ -1,0 +1,234 @@
+# 23. Nuxt 生态主流方案（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/23-ecosystem-solutions
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 23. Nuxt 生态主流方案
+
+> 本章示例：`app/nuxt.config.ts`、`app/pages/docs/[...slug].vue`、`app/pages/index.vue`、`app/server/api/auth/github.get.ts`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/` 与 `http://localhost:3000/docs/getting-started`
+
+## 概念解析
+
+**Nuxt 生态的第一性原理是「优先官方模块，再社区，最后自研」**。官方模块（`@nuxt/ui`、`@nuxt/content`、`@nuxt/image`、`@nuxtjs/i18n`、`@nuxtjs/seo`）由核心团队维护，跟随 Nuxt 大版本同步升级，自动导入、类型、devtools 全部就位；它们解决的是「几乎每个项目都要做」的通用问题，自研一套不仅重复造轮子，还会在每次升级时付出兼容成本。选型的关键不是「装什么」而是「何时装」——按需引入，每加一个模块都对应一个明确的产品需求。
+
+**`@nuxt/ui` 是组件库 + 设计系统的合体**：基于 Tailwind 与 Reka UI（无头组件），按钮、表单、弹窗等组件用语义化 props（`color`、`variant`、`size`）代替手写类名，主题通过 `app.config.ts` 的 `ui` 键集中定制，设计令牌一处改全站生效。它与普通 Tailwind 项目共存无冲突，因为组件样式由模块注入、不动你的配置文件。**`@nuxt/content` 把 Git 仓库变成 CMS**：`content/` 目录下的 Markdown/JSON/CSV 自动入库，组件里用 `queryCollection`（v3；v2 为 `queryContent`）按路径查询、`<ContentRenderer>` 渲染，配合 frontmatter 与 `useSeoMeta`，一个文档站/博客的骨架半天就能立起来——但记住它是内容层不是数据库，写操作复杂、需要权限与并发控制的场景请用真数据库。
+
+**`@nuxt/image` 内置 IPX 按需图像优化**：`<NuxtImg>` 自动生成 `srcset`、按容器宽度请求缩放后的图片、协商 webp/avif 格式，LCP 图片体积常常直接砍掉 70%。SSR/Node 部署零配置；全静态或边缘部署时 IPX 需要一个函数运行时，否则改用 `provider` 切到 Cloudinary/云厂商的图片服务。**认证的两个主流选项分工不同**：`nuxt-auth-utils` 是官方系工具集，`defineOAuthGitHubEventHandler` 等事件处理器 + `setUserSession` 加密 Cookie 会话，几十行完成 OAuth 全流程，适合自有后端；`sidebase/nuxt-auth` 封装 Auth.js，面向「对接 NextAuth 生态提供者」或需要 credentials + 多 provider 统一抽象的跨栈团队。
+
+**`@nuxtjs/i18n` 与 `@nuxtjs/seo` 要一起规划**：i18n 的 `strategy: 'prefix_except_default'` 给非默认语言加 URL 前缀，配合 `useLocaleHead` 自动输出 `hreflang`，搜索引擎才能把多语言页面当作独立可索引实体；SEO 套件（`@nuxtjs/seo`）则打包了 sitemap、robots、OG Image、结构化数据等子模块，OG Image 用 Vue 组件定义分享卡片、构建/运行时渲染成 PNG。**`@vite-pwa/nuxt` 把 Workbox 包成配置**：`registerType: 'autoUpdate'` 让新 Service Worker 自动接管，`workbox` 键配置预缓存与运行时缓存策略——务必把 `/api/**` 排除在导航回退之外，否则离线兜底 HTML 会污染接口响应。
+
+模块按项目类型的典型组合如下表（「●」强烈推荐，「○」按需）：
+
+| 项目类型 | UI | Content | Image | i18n | SEO | PWA | 认证 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 文档站/博客 | ○ | ● | ● | ○ | ● | ○ | — |
+| 营销落地页 | ● | ○ | ● | ● | ● | ○ | — |
+| SaaS 后台 | ● | — | ○ | ● | — | ○ | ● |
+| 内容社区 | ● | ● | ● | ○ | ● | ● | ● |
+| 内部工具 | ● | — | — | ○ | — | — | ● |
+
+## 典型应用场景
+
+- **半天搭文档站**：`@nuxt/content` + `@nuxt/ui` 的 prose 排版 + `@nuxtjs/seo` 的 sitemap，`content/docs/` 里写 Markdown 即成站。
+- **图片重的内容站**：`<NuxtImg>` 全站替换 `<img>`，远端图床域名配 `image.domains` 白名单，LCP 从 4s 压到 1.5s。
+- **GitHub 登录的 SaaS**：`nuxt-auth-utils` 的 OAuth 事件处理器 + `useUserSession()` 客户端读取，免自建回调与会话存储。
+- **出海多语言站**：i18n `prefix_except_default` + 懒加载语言包 + `hreflang`，每种语言独立 URL 利于收录。
+- **营销活动页**：PWA 离线可用 + OG Image 组件化分享卡片，弱网与社交传播两个场景都拿分。
+- **设计统一的中后台**：`@nuxt/ui` 主题令牌定制品牌色，业务代码里不再出现裸类名调色。
+
+## 完整代码示例
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    modules: [
+        '@pinia/nuxt',
+        '@nuxt/ui',       // 组件库（内置 Tailwind 与无头组件）
+        '@nuxt/content',  // 文件驱动 CMS
+        '@nuxt/image',    // IPX 图片优化
+        '@nuxtjs/i18n',   // 国际化
+        '@vite-pwa/nuxt'  // PWA / Workbox
+    ],
+    // i18n：非默认语言加 URL 前缀，语言包懒加载
+    i18n: {
+        locales: [
+            { code: 'zh', file: 'zh.json', name: '简体中文' },
+            { code: 'en', file: 'en.json', name: 'English' }
+        ],
+        defaultLocale: 'zh',
+        strategy: 'prefix_except_default',
+        lazy: true,
+        langDir: 'locales/'
+    },
+    // image：远端图床域名显式白名单，格式优先现代编码
+    image: {
+        quality: 80,
+        format: ['webp', 'avif'],
+        domains: ['cdn.example.com']
+    },
+    // pwa：新版本自动接管；API 不走进离线导航回退
+    pwa: {
+        registerType: 'autoUpdate',
+        manifest: {
+            name: 'Nuxt LearnHub',
+            short_name: 'LearnHub',
+            theme_color: '#00dc82',
+            icons: [{ src: '/pwa-192.png', sizes: '192x192', type: 'image/png' }]
+        },
+        workbox: {
+            navigateFallbackDenylist: [/^\/api\//]
+        }
+    },
+    compatibilityDate: '2025-07-15'
+});
+```
+
+> 运行方式：`npm install @nuxt/ui @nuxt/content @nuxt/image @nuxtjs/i18n @vite-pwa/nuxt` 后 `npm run dev`；访问 `http://localhost:3000/en/` 验证语言前缀路由，DevTools Application 面板可见 Service Worker 注册。
+
+```vue
+<!-- 文件: app/pages/docs/[...slug].vue -->
+<script setup lang="ts">
+    const route = useRoute();
+
+    // Content v3：queryCollection 查询 content/docs/ 集合
+    //（v2 写法为 queryContent(route.path).findOne()）
+    const { data: doc } = await useAsyncData(`doc-${route.path}`, () =>
+        queryCollection('docs').path(route.path).first()
+    );
+    if (!doc.value) {
+        throw createError({ statusCode: 404, statusMessage: '文档不存在' });
+    }
+    // frontmatter 里的 title/description 直接喂给 SEO
+    useSeoMeta({
+        title: doc.value.title,
+        description: doc.value.description
+    });
+</script>
+
+<template>
+    <main class="prose">
+        <!-- ContentRenderer 渲染 Markdown AST，代码高亮/TOC 开箱即用 -->
+        <ContentRenderer :value="doc" />
+    </main>
+</template>
+```
+
+> 运行方式：新建 `app/content/docs/getting-started.md`（含 frontmatter `title` 与正文）后访问 `http://localhost:3000/docs/getting-started`，页面标题即取自 frontmatter。
+
+```vue
+<!-- 文件: app/pages/index.vue -->
+<script setup lang="ts">
+    import type { Note } from '#shared/types/note';
+
+    const { data: notes } = await useFetch<Note[]>('/api/notes', { default: () => [] });
+</script>
+
+<template>
+    <main>
+        <header>
+            <!-- Nuxt UI：语义化 props 代替手写类名 -->
+            <UButton color="primary" to="/notes">全部笔记</UButton>
+            <!-- Nuxt Image：按容器宽度生成 srcset，自动协商 webp/avif -->
+            <NuxtImg
+                src="/cover.jpg"
+                width="800"
+                height="400"
+                sizes="sm:100vw md:800px"
+                alt="LearnHub 封面"
+            />
+        </header>
+        <div class="note-grid">
+            <UCard v-for="note in notes" :key="note.id">
+                <template #header>{{ note.title }}</template>
+                <p>{{ note.excerpt }}</p>
+                <template #footer>
+                    <UButton variant="link" :to="`/notes/${note.id}`">阅读全文</UButton>
+                </template>
+            </UCard>
+        </div>
+    </main>
+</template>
+```
+
+> 运行方式：访问 `http://localhost:3000/`，DevTools Network 面板可见封面图按视口宽度请求到缩放后的 webp 版本；卡片组件样式由 `@nuxt/ui` 主题统一驱动。
+
+```ts
+// 文件: app/server/api/auth/github.get.ts
+// nuxt-auth-utils：OAuth 全托管——跳转、回调、换取用户资料、写会话一条龙
+export default defineOAuthGitHubEventHandler({
+    config: {
+        // clientId/clientSecret 从 NUXT_OAUTH_GITHUB_CLIENT_ID 等环境变量注入
+        emailRequired: true
+    },
+    async onSuccess(event, { user }) {
+        // 写入 httpOnly + 加密的会话 Cookie；客户端用 useUserSession() 读取
+        await setUserSession(event, {
+            user: { name: user.login, avatar: user.avatar_url }
+        });
+        return sendRedirect(event, '/dashboard');
+    },
+    onError(event, error) {
+        console.error('GitHub OAuth 失败', error);
+        return sendRedirect(event, '/login?error=oauth');
+    }
+});
+```
+
+> 运行方式：`npm install nuxt-auth-utils` 并在 GitHub OAuth App 后台把回调地址填为 `http://localhost:3000/api/auth/github`，配置环境变量后访问 `http://localhost:3000/login` 点击 GitHub 登录，成功后跳转 `http://localhost:3000/dashboard` 且会话 Cookie 已写入。
+
+## 最佳实践
+
+1. **官方优先、按需引入**：每加一个模块对应一个明确需求；「全家桶先装上再说」会拖慢冷启动、放大升级面，也增加模块间相互踩脚的概率。
+2. **一次只引入一个模块并跑通再叠加**：组合冲突（两个模块都注册同名 composable、都注入 Tailwind、都改 vite 配置）是生态实践的第一大坑，逐个引入能把问题定位范围缩到最小。
+3. **锁定 minor 版本、升级前读 changelog**：官方模块跟随 Nuxt 主版本节奏，跨 minor 常有配置项更名（如 Content v2 的 `queryContent` 到 v3 的 `queryCollection`），升级后立即跑 `typecheck` 与测试兜底。
+4. **Content 只做内容层**：Markdown 驱动的页面、文档、博客很合适；需要写操作、权限、事务的数据请用数据库 + Nitro API，别拿 Git 当后端。
+5. **i18n 与 SEO 同步设计**：多语言站从第一天就定 `strategy`、`hreflang` 与按 locale 拆分的 sitemap，上线后再改 URL 结构等于让搜索引擎重新认识你的网站。
+6. **图片域名显式白名单**：`image.domains`（或 `remotePatterns`）只放自己的图床，防止 IPX 被当成开放代理去抓取任意第三方图片。
+
+## 常见问题
+
+### Q：项目已经手写了一套 Tailwind 组件，还能上 `@nuxt/ui` 吗？
+
+A：可以渐进迁移——`@nuxt/ui` 自带 Tailwind 集成且不与你的配置冲突，新页面直接用 UI 组件、旧组件按页面逐步替换；主题令牌在 `app.config.ts` 的 `ui` 键里对齐品牌色，避免两套视觉语言长期并存。
+
+### Q：`queryCollection('docs')` 查不到任何内容？
+
+A：按顺序排查：`content/docs/` 目录是否存在且文件扩展名受支持（`.md` 等）；v3 要求 `content.config.ts` 里用 `defineCollection` 声明 `docs` 集合；路径参数是文档的 `path` 字段而非文件系统路径。dev 下改动 `content.config.ts` 需要重启生效。
+
+### Q：`<NuxtImg>` 本地正常、部署到静态托管后全部 404？
+
+A：IPX 需要一个运行时才存在。`nuxi generate` 全静态部署时没有服务器执行优化，要么把请求的图片在 `nitro.prerender` 里预热生成，要么配置 `image.provider` 切到 Cloudinary/云厂商图片服务这类外部 provider。
+
+### Q：`nuxt-auth-utils` 和 `sidebase/nuxt-auth` 怎么选？
+
+A：自有 Nitro 后端、想要最小抽象的会话管理，选 `nuxt-auth-utils`（官方系、Cookie 会话加密、各 OAuth provider 一个事件处理器）；团队熟悉 Auth.js/NextAuth、或需要对接其庞大的 provider 生态与 credentials 登录统一抽象，选 `sidebase/nuxt-auth`。两者不共存，选型即二选一。
+
+## 小结
+
+- 选型三问：官方模块能不能解决？是不是当前迭代就需要？组合冲突排查过没有？
+- 五大件分工：UI 管设计系统、Content 管 Markdown 内容、Image 管 LCP 图片、i18n + SEO 管多语言收录、PWA 管离线与安装。
+- 认证二选一：`nuxt-auth-utils`（自有后端、Cookie 会话）或 `sidebase/nuxt-auth`（Auth.js 生态）。
+- 静态部署记住 IPX 需要运行时；Content v3 用 `queryCollection` 且集合要在 `content.config.ts` 声明。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】为什么推荐 i18n 用 `prefix_except_default` 策略而不是 `no_prefix`？</b></summary>
+
+`no_prefix` 下所有语言共享同一批 URL，靠 Cookie/头区分语言，搜索引擎无法把各语言版本当作独立页面索引，分享链接也无法携带语言信息。`prefix_except_default` 给非默认语言独立 URL 前缀（如 `/en/about`），配合 `hreflang` 标注，多语言页面才能被正确收录与传播。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】`@nuxt/content` 适合做什么、不适合做什么？各举一个例子。</b></summary>
+
+适合 Git 工作流驱动的只读内容：文档站、博客、 changelog——内容即代码，评审、版本、回滚都走 Git。不适合需要写操作与并发控制的场景，例如用户发布的笔记、评论：Content 没有事务、权限与实时写入能力，这类数据应落数据库、经 Nitro API 读写。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】引入两个模块后出现诡异冲突（如自动导入重名、样式被覆盖），系统化的排查路径是什么？</b></summary>
+
+先二分定位：临时移除其中一个模块确认冲突对，再用 `nuxi devtools` 检查自动导入来源与模块注册顺序；自动导入重名可在模块配置里改 `prefix` 规避，样式冲突检查两边 Tailwind content 扫描路径与层叠优先级（`@layer`）；版本兼容问题核对模块的 Nuxt 版本要求（`compatibility` 字段）是否覆盖当前版本。根治习惯是「一次只加一个模块、跑通再叠加」，把冲突定位范围天然缩到最小。
+
+</details>

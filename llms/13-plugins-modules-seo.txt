@@ -1,0 +1,183 @@
+# 13. 插件、模块与 SEO（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/13-plugins-modules-seo
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 13. 插件、模块与 SEO
+
+> 本章示例：`app/plugins/01.hello.client.ts`、`app/plugins/02.api.ts`、`app/nuxt.config.ts`、`app/pages/notes/[id].vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器打开 `http://localhost:3000` 后查看控制台与页面源代码中的 `<head>`
+
+## 概念解析
+
+**插件（Plugin）** 是在 Nuxt 应用启动阶段、渲染任何页面之前执行的代码，放在 `app/plugins/` 目录下即被自动注册。它的典型用途是：初始化全局库、注册全局指令、以及通过 `provide` 向全应用注入助手（例如封装好的 API 客户端）。插件用 `defineNuxtPlugin` 定义，接收 `nuxtApp` 作为参数——它是 Nuxt 的运行时上下文，等价于组合式函数里拿到的 `useNuxtApp()`。
+
+**运行环境与执行顺序**是插件的两个关键维度。文件名后缀 `.client.ts` 表示只在客户端执行、`.server.ts` 表示只在服务端执行，无后缀则两端都跑（SSR 时先在服务器跑一遍、水合时在浏览器再跑一遍）。多个插件之间默认按文件名排序执行，社区约定用数字前缀（`01.`、`02.`）显式控制先后，例如 `02.api.ts` 可以安全依赖 `01.` 中完成的基础设施。
+
+**模块（Module）** 则是「构建期」的扩展：它在 Nuxt 启动时拿到整个配置，可以注册组件、注入插件、修改 Vite/Nitro 配置，是生态能力的标准入口。Pinia、Tailwind、VueUse 等都以模块形式接入，写进 `nuxt.config.ts` 的 `modules` 数组即可，`nuxi module add` 命令能一键完成安装与配置。
+
+**SEO** 在 Nuxt 中是头等公民：`app.head` 提供全站默认值，`useHead` 提供通用 head 管理，`useSeoMeta` 则以类型安全的方式设置 title、description、og\* 等最常见字段，并自动处理 SSR 输出与客户端切换路由时的更新。
+
+## 典型应用场景
+
+- **封装 API 客户端**：用 `$fetch.create` 配上统一 `baseURL` 与错误拦截，通过 `provide: { api }` 注入，业务代码里 `useNuxtApp().$api` 直接用。
+- **只在浏览器里跑的逻辑**：接入依赖 `window`/`document` 的第三方库（如编辑器、图表），命名为 `xx.client.ts` 避免 SSR 报错。
+- **一键接入生态能力**：状态管理用 `@pinia/nuxt`、图标/图片优化用 `@nuxt/image`、原子化 CSS 用 `@nuxtjs/tailwindcss`、组合式工具集用 `@vueuse/nuxt`。
+- **内容站 SEO**：列表页与详情页用 `useSeoMeta` 按数据动态生成标题与分享卡片，配合 sitemap 模块让搜索引擎完整收录。
+- **渲染用户生成内容**：富文本摘要来自不可信输入时，用 `useHeadSafe` 限制可注入的标签与属性，防 XSS。
+
+## 完整代码示例
+
+```ts
+// 文件: app/plugins/01.hello.client.ts
+export default defineNuxtPlugin(() => {
+    // .client 后缀：本插件只在浏览器端执行，SSR 阶段被跳过
+    console.log('[plugin] hello 插件已在客户端启动')
+})
+```
+
+> 运行方式：`cd app && npm run dev`，打开浏览器控制台即可看到日志；查看「查看网页源代码」中不会有该输出。
+
+```ts
+// 文件: app/plugins/02.api.ts
+export default defineNuxtPlugin((nuxtApp) => {
+    // 基于 $fetch 创建带统一配置的实例：baseURL 指向本站 Nitro API
+    const api = $fetch.create({
+        baseURL: '/api',
+        onResponseError({ response }) {
+            // 统一错误出口：日志 + 可在此接入全局提示
+            console.error('[api]', response.status, response._data)
+        }
+    })
+    return {
+        provide: {
+            // 注入后可通过 useNuxtApp().$api 或模板中的 $api 访问
+            api
+        }
+    }
+})
+```
+
+> 运行方式：`cd app && npm run dev`；在任意页面的 `<script setup>` 中写 `const { $api } = useNuxtApp()` 后 `await $api('/notes')` 即可请求 `server/api/notes.ts`。
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    // 模块生态：Pinia 状态管理；更多模块可用 nuxi module add 安装
+    modules: ['@pinia/nuxt'],
+    css: ['~/assets/css/main.css'],
+    runtimeConfig: {
+        apiSecret: 'dev-secret',
+        public: {
+            siteName: 'Nuxt LearnHub'
+        }
+    },
+    routeRules: {
+        '/admin/**': { ssr: false }
+    },
+    app: {
+        head: {
+            // 全站默认 head：各页面可用 useSeoMeta 覆盖
+            title: 'Nuxt LearnHub',
+            htmlAttrs: { lang: 'zh-CN' },
+            meta: [
+                { name: 'description', content: 'Nuxt 4 实战学习笔记应用' },
+                { name: 'viewport', content: 'width=device-width, initial-scale=1' }
+            ],
+            link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }]
+        }
+    },
+    devtools: { enabled: true },
+    compatibilityDate: '2025-07-15'
+})
+```
+
+> 运行方式：`cd app && npm run dev`；「查看网页源代码」可在 `<head>` 中看到上述默认标签已被 SSR 输出。
+
+```vue
+<!-- 文件: app/pages/notes/[id].vue -->
+<script setup lang="ts">
+const route = useRoute()
+// 根据动态路由参数拉取笔记详情
+const { data: note } = await useFetch(`/api/notes/${route.params.id}`)
+
+// 动态 SEO：随数据变化，useSeoMeta 类型安全，标题/描述/分享卡片一站搞定
+useSeoMeta({
+    title: () => note.value ? `${note.value.title} · Nuxt LearnHub` : '笔记详情',
+    description: () => note.value?.summary ?? 'Nuxt 学习笔记详情页',
+    ogTitle: () => note.value?.title,
+    ogDescription: () => note.value?.summary,
+    ogType: 'article'
+})
+</script>
+
+<template>
+    <article v-if="note">
+        <h1>{{ note.title }}</h1>
+        <p>{{ note.summary }}</p>
+    </article>
+</template>
+```
+
+> 运行方式：`cd app && npm run dev` 后访问 `/notes/1`，「查看网页源代码」中 `<title>` 与 `og:*` 已按该笔记内容渲染；切到别的笔记再返回，客户端导航时 head 会自动更新。
+
+## 最佳实践
+
+- **插件保持轻量**：插件在每次启动（含 SSR 每个请求的服务端环境初始化）时执行，重计算应推迟到组合式函数或事件钩子中，避免拖慢首屏。
+- **用数字前缀管理顺序而非依赖隐式排序**：`01.`、`02.` 让执行先后一目了然；需要更细粒度控制时可用对象写法的 `enforce: 'pre' | 'post'`。
+- **全局助手一律走 `provide`**：不要往 `globalThis` 上挂变量；`provide` 注入的 `$xxx` 自带类型提示（Nuxt 会生成对应类型），且 SSR 安全。
+- **优先 `useSeoMeta` 而非手写 meta 数组**：它有完整的 TypeScript 类型与 IDE 补全，字段名写错会立刻报错，还能自动处理标签去重。
+- **不可信内容只走 `useHeadSafe`**：它把可注入的标签/属性收敛到白名单，是渲染用户输入时防注入的默认选择。
+- **模块优先于手写集成**：接新能力先查是否有现成模块（`nuxi module add xxx`），模块帮你处理构建期接线，比手动配 Vite 插件省心且可升级。
+
+## 常见问题
+
+### Q：插件里 `return { provide: { api } }` 之后，模板和脚本里分别怎么用？
+
+A：脚本中用 `const { $api } = useNuxtApp()` 或插件参数 `nuxtApp.$api`；模板中可直接写 `{{ $api }}` 或在事件处理里引用，`$` 前缀是 Nuxt 自动加的约定。
+
+### Q：`.client.ts` 插件里 `console.log` 没输出，是为什么？
+
+A：先确认文件确实在 `app/plugins/` 下（Nuxt 4 源码目录是 `app/`）；其次 SSR 首屏时该日志只会出现在浏览器控制台，不会出现在终端——终端里的是服务端输出。
+
+### Q：`useHead` 和 `useSeoMeta` 该选哪个？
+
+A：设置 title/description/og 等标准 SEO 字段用 `useSeoMeta`（类型安全）；需要管理 `link`、`script`、`style` 或非标准标签时用 `useHead`，二者可在同一组件中混用。
+
+### Q：站点地图和 robots.txt 要手写吗？
+
+A：不用。安装 `@nuxtjs/sitemap` 模块即可自动生成 `sitemap.xml`（动态路由可配置数据源），robots.txt 也有对应的社区模块处理，一行 `nuxi module add` 的事。
+
+## 小结
+
+- `app/plugins/` 自动注册插件，`defineNuxtPlugin` 定义，`.client`/`.server` 后缀控制运行端，数字前缀控制执行顺序。
+- `return { provide: { api } }` 是注入全局助手的标准姿势，通过 `useNuxtApp().$api` 或模板 `$api` 消费。
+- 模块是构建期扩展，`modules: ['@pinia/nuxt']` 接入生态，`nuxi module add` 一键安装配置。
+- SEO 三件套：`app.head` 管全站默认、`useHead` 管通用标签、`useSeoMeta` 管类型安全的核心字段；不可信输入交给 `useHeadSafe`。
+- 详情页把 `useSeoMeta` 写成函数式取值，SEO 信息即可随数据动态更新。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-7" target="_blank" rel="noopener">EP.07 工程化</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 为什么 API 客户端插件建议命名为 `02.api.ts` 而不是 `api.ts`？</b></summary>
+
+Nuxt 按文件名排序执行插件，数字前缀让执行顺序显式可控。`01.` 里的基础设施（如日志、鉴权初始化）先跑，`02.api.ts` 就能安全依赖它们，避免隐式顺序在重构时被打乱。
+
+</details>
+
+<details>
+<summary><b>2. 在 `&lt;script setup&gt;` 中如何拿到插件 `provide` 的 `$api`？模板中呢？</b></summary>
+
+脚本中：`const { $api } = useNuxtApp()`（或在其他插件中用 `nuxtApp.$api`）；模板中直接以 `$api` 引用即可，Nuxt 会自动把 provide 的助手暴露给模板。
+
+</details>
+
+<details>
+<summary><b>3. 详情页想让 `&lt;title&gt;` 随异步数据变化，推荐怎么做？</b></summary>
+
+用 `useSeoMeta` 并以函数形式取值，例如 `title: () => note.value?.title`。数据到达后函数重新求值，head 自动更新，且 SSR 首屏就能输出正确标签。
+
+</details>
