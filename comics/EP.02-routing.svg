@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 840" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif">
+  <defs>
+    <linearGradient id="ep02-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#101a33"/>
+    </linearGradient>
+    <linearGradient id="ep02-titleGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="840" fill="url(#ep02-bg)"/>
+  <polygon points="980,0 1060,0 760,840 680,840" fill="#22d3ee" opacity="0.04"/>
+  <polygon points="150,0 220,0 1040,840 970,840" fill="#a78bfa" opacity="0.03"/>
+  <rect x="20" y="14" width="92" height="36" rx="9" fill="#7C3AED"/>
+  <text x="66" y="38" text-anchor="middle" font-size="18" font-weight="bold" fill="#ffffff">EP.02</text>
+  <text x="126" y="40" font-size="26" font-weight="bold" fill="url(#ep02-titleGrad)">路由的约定之力</text>
+  <text x="1180" y="38" text-anchor="end" font-size="13" fill="#64748b">Nuxt 4 实战漫画剧场 · NEON INK</text>
+  <rect x="20" y="62" width="1160" height="2" rx="1" fill="url(#ep02-titleGrad)" opacity="0.6"/>
+  <g transform="translate(20,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#22d3ee" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#22d3ee"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">1</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">困境：路由忘注册</text>
+<g transform="translate(52,110)"><rect x="-19" y="14" width="38" height="22" rx="9" fill="#1d4ed8"/><path d="M-5,18 L5,18 L3.5,27 L0,29 L-3.5,27 Z" fill="#f97316"/><circle cx="0" cy="-2" r="16" fill="#ffd9b3"/><path d="M-16,-2 L-11,-13 L-6,-4 L0,-14 L6,-4 L11,-13 L16,-2 Q0,-11 -16,-2 Z" fill="#f97316"/><circle cx="-5" cy="0" r="1.7" fill="#0b1220"/><circle cx="5" cy="0" r="1.7" fill="#0b1220"/><path d="M-3,5 q3,3 6,0" stroke="#0b1220" stroke-width="1.3" fill="none"/></g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="73" width="200" height="74" rx="10" fill="#f8fafc"/>
+    <text x="102" y="95" font-size="15" fill="#0b1220">新页面又忘了注册，</text>
+    <text x="102" y="117" font-size="15" fill="#0b1220">动态参数正则写错，</text>
+    <text x="102" y="139" font-size="15" fill="#0b1220">线上直接 404 了！</text>
+    <rect x="24" y="152" width="524" height="100" rx="8" fill="#0a0f1c" stroke="#22d3ee" stroke-opacity="0.35"/>
+    <text x="38" y="174" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">// vue-router 手搓时代</text>
+    <text x="38" y="192" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">{ path: '/post/:id' }</text>
+    <text x="38" y="210" font-size="12.5" fill="#fbbf24" font-family="'SF Mono',Consolas,monospace">// 新页面忘了 import</text>
+    <text x="38" y="228" font-size="12.5" fill="#f472b6" font-family="'SF Mono',Consolas,monospace">// 路由表 300 行没人敢动</text>
+    <rect x="24" y="260" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="260" width="4" height="52" rx="2" fill="#22d3ee"/>
+    <text x="40" y="282" font-size="13.5" fill="#e2e8f0">路由表越长，注册遗漏越多。</text>
+    <text x="40" y="302" font-size="13.5" fill="#94a3b8">动态参数全靠人肉正则维护。</text>
+  </g>
+  <g transform="translate(608,84)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#a78bfa" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#a78bfa"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">2</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">揭秘：目录即路由</text>
+<g transform="translate(52,110)"><rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/><circle cx="0" cy="-2" r="16" fill="#ffd9b3"/><path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/><circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/><circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/><path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/><circle cx="-5" cy="0" r="1.4" fill="#0b1220"/><circle cx="5" cy="0" r="1.4" fill="#0b1220"/><path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/></g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="73" width="208" height="74" rx="10" fill="#f8fafc"/>
+    <text x="102" y="95" font-size="15" fill="#0b1220">Nuxt 只认 app/pages/：</text>
+    <text x="102" y="117" font-size="15" fill="#0b1220">文件名就是路径，</text>
+    <text x="102" y="139" font-size="15" fill="#0b1220">方括号就是动态参数。</text>
+    <rect x="24" y="152" width="524" height="118" rx="8" fill="#0a0f1c" stroke="#a78bfa" stroke-opacity="0.35"/>
+    <text x="38" y="174" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">app/pages/index.vue → /</text>
+    <text x="38" y="192" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">app/pages/about.vue → /about</text>
+    <text x="38" y="210" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">app/pages/post/[id].vue → 动态</text>
+    <text x="38" y="228" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">app/pages/[...slug].vue → 通配</text>
+    <text x="38" y="246" font-size="12.5" fill="#34d399" font-family="'SF Mono',Consolas,monospace">// 建文件即建路由</text>
+    <rect x="24" y="278" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="278" width="4" height="52" rx="2" fill="#a78bfa"/>
+    <text x="40" y="300" font-size="13.5" fill="#e2e8f0">目录结构即路由表，一眼可审计。</text>
+    <text x="40" y="320" font-size="13.5" fill="#94a3b8">[id] 单参数，[...slug] 捕获多段。</text>
+  </g>
+  <g transform="translate(20,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#f472b6" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f472b6"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">3</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">实证：导航与守卫</text>
+<g transform="translate(52,110)"><rect x="-19" y="14" width="38" height="22" rx="9" fill="#7C3AED"/><circle cx="0" cy="-2" r="16" fill="#ffd9b3"/><path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-13 -16,-13 q-13,0 -16,13 z" fill="#22d3ee"/><circle cx="15" cy="4" r="6.5" fill="#22d3ee"/><circle cx="-5" cy="0" r="1.7" fill="#0b1220"/><circle cx="5" cy="0" r="1.7" fill="#0b1220"/><path d="M-3,5 q3,3 6,0" stroke="#0b1220" stroke-width="1.3" fill="none"/></g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="73" width="200" height="74" rx="10" fill="#f8fafc"/>
+    <text x="102" y="95" font-size="15" fill="#0b1220">跳转用 navigateTo，</text>
+    <text x="102" y="117" font-size="15" fill="#0b1220">守路由用中间件，</text>
+    <text x="102" y="139" font-size="15" fill="#0b1220">我给后台加把锁！</text>
+    <rect x="24" y="152" width="524" height="136" rx="8" fill="#0a0f1c" stroke="#f472b6" stroke-opacity="0.35"/>
+    <text x="38" y="174" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">// app/middleware/auth.ts</text>
+    <text x="38" y="192" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">export default</text>
+    <text x="38" y="210" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">  defineNuxtRouteMiddleware((to) =&gt; {</text>
+    <text x="38" y="228" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">    if (!useCookie('token').value)</text>
+    <text x="38" y="246" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">      return navigateTo('/login')</text>
+    <text x="38" y="264" font-size="12.5" fill="#7dd3fc" font-family="'SF Mono',Consolas,monospace">  })</text>
+    <rect x="24" y="296" width="524" height="52" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="296" width="4" height="52" rx="2" fill="#f472b6"/>
+    <text x="40" y="318" font-size="13.5" fill="#e2e8f0">navigateTo 在 SSR 与客户端都安全。</text>
+    <text x="40" y="338" font-size="13.5" fill="#94a3b8">middleware 目录下的守卫按名引用。</text>
+  </g>
+  <g transform="translate(608,462)">
+    <rect width="572" height="361" rx="14" fill="#0e1730" stroke="#223055"/>
+    <polygon points="380,0 450,0 120,361 50,361" fill="#f97316" opacity="0.04"/>
+    <rect x="14" y="13" width="26" height="20" rx="6" fill="#f97316"/>
+    <text x="27" y="28" text-anchor="middle" font-size="14" font-weight="bold" fill="#0b1220">4</text>
+    <text x="50" y="29" font-size="17" font-weight="bold" fill="#e2e8f0">结案：路由三件套</text>
+<g transform="translate(52,110)"><rect x="-19" y="14" width="38" height="22" rx="9" fill="#cbd5e1"/><circle cx="0" cy="-2" r="16" fill="#ffd9b3"/><path d="M-16,-2 a16,16 0 0 1 32,0 q-3,-12 -16,-12 q-13,0 -16,12 z" fill="#e2e8f0"/><circle cx="-5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/><circle cx="5" cy="0" r="4" fill="none" stroke="#94a3b8" stroke-width="1.4"/><path d="M-1,0 L1,0" stroke="#94a3b8" stroke-width="1.4"/><circle cx="-5" cy="0" r="1.4" fill="#0b1220"/><circle cx="5" cy="0" r="1.4" fill="#0b1220"/><path d="M-8,5 q8,7 16,0 q-2,7 -8,7 q-6,0 -8,-7 z" fill="#e2e8f0"/></g>
+    <polygon points="88,100 74,106 88,112" fill="#f8fafc"/>
+    <rect x="88" y="73" width="200" height="74" rx="10" fill="#f8fafc"/>
+    <text x="102" y="95" font-size="15" fill="#0b1220">路由交给目录约定，</text>
+    <text x="102" y="117" font-size="15" fill="#0b1220">跳转交给 navigateTo，</text>
+    <text x="102" y="139" font-size="15" fill="#0b1220">守卫交给中间件。</text>
+    <rect x="24" y="154" width="96" height="26" rx="13" fill="#f97316"/>
+    <text x="72" y="172" text-anchor="middle" font-size="13" font-weight="bold" fill="#0b1220">⚠ 坑点</text>
+    <rect x="32" y="200" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="209" font-size="14" fill="#e2e8f0">动态路由文件别忘 .vue 后缀</text>
+    <rect x="32" y="228" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="237" font-size="14" fill="#e2e8f0">navigateTo 要 return 中断执行</text>
+    <rect x="32" y="256" width="9" height="9" rx="2" fill="#f97316"/>
+    <text x="52" y="265" font-size="14" fill="#e2e8f0">全局中间件注意执行顺序</text>
+    <rect x="24" y="290" width="524" height="50" rx="8" fill="#111a30" stroke="#1e2a44"/>
+    <rect x="24" y="290" width="4" height="50" rx="2" fill="#22d3ee"/>
+    <text x="40" y="311" font-size="13.5" font-weight="bold" fill="#22d3ee">码叔总结</text>
+    <text x="40" y="331" font-size="13.5" fill="#e2e8f0">目录即路由，中间件守门。</text>
+  </g>
+  <text x="1180" y="832" text-anchor="end" font-size="11" fill="#475569">NEON INK · nuxt-tutorial-project · EP2</text>
+</svg>

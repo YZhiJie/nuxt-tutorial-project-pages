@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="nuxt-grad" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00dc82"/>
+      <stop offset="50%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#0b1220"/>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#nuxt-grad)" fill-opacity="0.15"/>
+  <rect x="4" y="4" width="56" height="56" rx="14" stroke="url(#nuxt-grad)" stroke-width="2"/>
+  <!-- Nuxt 山形 logo -->
+  <path d="M20 40 L32 22 L44 40 L38 40 L32 30 L26 40 Z" fill="url(#nuxt-grad)"/>
+  <path d="M28 44 L32 37 L36 44 Z" fill="#00dc82"/>
+</svg>

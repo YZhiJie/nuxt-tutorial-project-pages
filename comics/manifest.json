@@ -1,0 +1,68 @@
+{
+  "series": "Nuxt 4 实战漫画剧场 · 霓虹墨 Neon Ink",
+  "version": "1.0.0",
+  "canvas": {
+    "width": 1200,
+    "height": 840
+  },
+  "panels": {
+    "count": 4,
+    "width": 572,
+    "height": 361
+  },
+  "characters": [
+    "像素酱",
+    "标签君",
+    "码叔"
+  ],
+  "episodes": [
+    {
+      "ep": 1,
+      "slug": "EP.01-nuxt-intro",
+      "title": "初识 Nuxt 4",
+      "part": "01-what-is-nuxt"
+    },
+    {
+      "ep": 2,
+      "slug": "EP.02-routing",
+      "title": "路由的约定之力",
+      "part": "03-file-based-routing"
+    },
+    {
+      "ep": 3,
+      "slug": "EP.03-views-layouts",
+      "title": "组件与布局",
+      "part": "05-components"
+    },
+    {
+      "ep": 4,
+      "slug": "EP.04-data-fetching",
+      "title": "数据获取之道",
+      "part": "07-usefetch"
+    },
+    {
+      "ep": 5,
+      "slug": "EP.05-state-management",
+      "title": "状态不串号",
+      "part": "09-usestate"
+    },
+    {
+      "ep": 6,
+      "slug": "EP.06-server-fullstack",
+      "title": "服务端全栈",
+      "part": "11-server-api"
+    },
+    {
+      "ep": 7,
+      "slug": "EP.07-engineering",
+      "title": "工程化体检",
+      "part": "13-plugins-modules-seo"
+    },
+    {
+      "ep": 8,
+      "slug": "EP.08-deployment",
+      "title": "构建与部署",
+      "part": "15-build-prerender"
+    }
+  ]
+}

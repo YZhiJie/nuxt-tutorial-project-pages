@@ -1,0 +1,159 @@
+# 11. Nitro 服务端 API（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/11-server-api
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 11. Nitro 服务端 API
+
+> 本章示例：`server/api/hello.get.ts`、`server/api/notes/`、`server/middleware/logger.ts`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/api/hello`
+
+## 概念解析
+
+Nuxt 4 的服务端能力由内置的 Nitro 引擎驱动：开发时它就是 dev server，构建时把 `server/` 目录编译成独立产物，并通过预设（preset）适配 Node、Deno 以及各类 Serverless / 边缘平台。你只管写业务代码，打包、压缩与运行时适配都交给 Nitro，同一套代码可以部署到几乎任何平台。
+
+`server/api/` 是写接口的地方：每个文件默认导出一个 `defineEventHandler`，文件路由自动映射为 `/api/*` 路径。文件名可加方法后缀——`hello.get.ts` 只响应 GET，`index.post.ts` 处理该目录的 POST。一个最小处理器只需一行核心代码：`export default defineEventHandler(() => ({ message: 'hello' }))`（见 `server/api/hello.get.ts`），返回对象会被自动序列化为 JSON。
+
+处理函数收到 h3 的 event 对象，配套工具全部自动导入：`readBody` 读请求体、`getQuery` 取查询参数、`getRouterParam` 取动态路由段、`setResponseStatus` 改状态码、`sendRedirect` 做重定向。出错时抛 `createError({ statusCode, statusMessage, data })`：Nitro 会按状态码返回 JSON 错误体；客户端 `useFetch` 得到非空的 `error`，`$fetch` 则抛出带 `statusCode`/`data` 的异常，可直接展示 statusMessage。
+
+除 API 外还有几个约定目录：`server/middleware/` 中的文件对每个请求按序执行（日志、鉴权拦截），注意正常中间件不要返回响应体，否则会短路后续所有处理；`server/routes/` 与 api 目录结构相同但不带 `/api` 前缀，适合 sitemap、RSS、webhook 等根路径资源；`server/plugins/` 注册 Nitro 生命周期插件；`server/utils/` 下的工具自动导入，供所有服务端代码使用。
+
+## 典型应用场景
+
+- **BFF 接口层**：聚合第三方 API、隐藏密钥，为前端提供干净的数据。
+- **轻量后端**：CRUD、表单提交、鉴权，小项目无需另起后端服务。
+- **服务端中间件**：请求日志、限流、按路径前缀统一鉴权。
+- **非 API 路由**：`server/routes/sitemap.xml.ts` 这类根路径资源。
+- **服务端工具复用**：数据访问层放 `server/utils/`，处理器之间共享。
+
+## 完整代码示例
+
+```ts
+// 文件: server/api/notes/index.get.ts
+// 演示用内存数据，持久化版本见第 12 章 server/utils/notes-store.ts
+const notes = [
+    { id: '1', title: 'useFetch 要点', content: '注意水合与 key', createdAt: '2026-10-01' },
+    { id: '2', title: 'Pinia 两种风格', content: 'options 与 setup', createdAt: '2026-10-02' },
+    { id: '3', title: 'Nitro 入门', content: 'server/api 约定', createdAt: '2026-10-03' }
+]
+
+export default defineEventHandler((event) => {
+    // getQuery 解析 ?q= 关键字做标题过滤
+    const { q } = getQuery(event)
+    if (typeof q === 'string' && q.trim() !== '') {
+        return notes.filter((n) => n.title.includes(q.trim()))
+    }
+    return notes
+})
+```
+> 运行方式：dev 启动后访问 `http://localhost:3000/api/notes` 或 `http://localhost:3000/api/notes?q=Pinia` 查看过滤效果。
+
+```ts
+// 文件: server/api/notes/index.post.ts
+export default defineEventHandler(async (event) => {
+    // readBody 解析 JSON 请求体
+    const body = await readBody<{ title?: string; content?: string }>(event)
+    if (!body?.title || body.title.trim() === '') {
+        // createError 抛出 400，客户端能拿到 statusCode 与 statusMessage
+        throw createError({ statusCode: 400, statusMessage: 'title 为必填项' })
+    }
+    const note = {
+        id: crypto.randomUUID(),
+        title: body.title.trim(),
+        content: body.content ?? '',
+        createdAt: new Date().toISOString()
+    }
+    // 返回新建资源，状态码置 201
+    setResponseStatus(event, 201)
+    return note
+})
+```
+> 运行方式：`curl -X POST http://localhost:3000/api/notes -H 'Content-Type: application/json' -d '{"title":"新笔记"}'`；缺 title 时返回 400。
+
+```ts
+// 文件: server/api/notes/[id].get.ts
+export default defineEventHandler((event) => {
+    // getRouterParam 读取动态段 [id]
+    const id = getRouterParam(event, 'id')
+    // 演示数据（正式版由共享数据层提供，见第 12 章）
+    const found = id === '1' || id === '2' || id === '3'
+    if (!found) {
+        throw createError({ statusCode: 404, statusMessage: '笔记不存在' })
+    }
+    return { id, title: `笔记 ${id}`, content: '详情内容', createdAt: '2026-10-01' }
+})
+```
+> 运行方式：访问 `http://localhost:3000/api/notes/1` 返回详情；访问 /api/notes/999 得到 404 JSON。
+
+```ts
+// 文件: server/middleware/logger.ts
+export default defineEventHandler((event) => {
+    const start = Date.now()
+    // 响应结束后输出方法与耗时
+    event.node.res.on('finish', () => {
+        console.log(`${event.method} ${event.path} - ${Date.now() - start}ms`)
+    })
+    // 中间件通常不 return 任何值，返回响应体会拦截后续所有处理
+})
+```
+> 运行方式：dev 启动后任意访问页面或接口，终端即打印每个请求的方法、路径与耗时。
+
+## 最佳实践
+
+1. **方法用文件后缀约束**——`hello.get.ts` 语义明确，比处理器里判断 method 干净。
+2. **错误统一走 createError**——状态码语义化（400/401/404/500），客户端按 statusCode 分支处理。
+3. **校验放在处理器开头**——readBody 之后先验必填与类型，fail fast。
+4. **中间件别轻易返回响应**——return 值会短路请求，只在鉴权拦截等场景刻意为之。
+5. **数据访问收敛到 server/utils/**——处理器只编排参数与响应，逻辑下沉便于复用和测试。
+6. **根路径资源放 server/routes/**——记住只有 api 目录自动带 /api 前缀。
+
+## 常见问题
+
+### Q：useFetch('/api/notes') 报 404，但文件明明存在？
+
+A：确认文件在 `server/api/` 下且文件名拼写正确；新增服务端文件偶尔需要重启 dev server 才会被 Nitro 注册。
+
+### Q：客户端怎么拿到 createError 里的 data？
+
+A：`useFetch` 返回的 `error.value.data` 即错误体的 data 字段；`$fetch` 抛出的异常上也有 `error.data` 与 `error.statusCode`。
+
+### Q：server/middleware 和 defineNuxtRouteMiddleware 有什么区别？
+
+A：server/middleware 作用于所有到达服务端的请求（含 API 与页面 SSR），是 Nitro/h3 层；defineNuxtRouteMiddleware 是客户端路由层，只在页面导航时触发。
+
+### Q：处理器里直接返回对象就是 JSON 吗？
+
+A：是，h3 会把返回的对象/数组自动序列化为 JSON；返回字符串则按 text/plain 发送，也可用 `setResponseStatus` 调整状态码。
+
+## 小结
+
+- `server/` 由 Nitro 驱动，dev server 与生产构建同源，各平台预设一键适配。
+- `server/api/` 文件路由映射为 `/api/*`，方法后缀（.get/.post）区分请求方法。
+- h3 工具自动导入：readBody / getQuery / getRouterParam / setResponseStatus / sendRedirect / createError。
+- `server/middleware/` 拦截所有请求；`server/routes/` 不带 /api 前缀；`server/utils/` 自动导入；`server/plugins/` 注册 Nitro 插件。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-6" target="_blank" rel="noopener">EP.06 服务端全栈</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. server/api 与 server/routes 的区别是什么？</b></summary>
+
+api 目录下路由自动带 /api 前缀（hello.get.ts → /api/hello）；routes 目录挂在根路径（feed.xml.ts → /feed.xml），适合 sitemap、RSS 等非 API 资源。
+
+</details>
+
+<details>
+<summary><b>2. 客户端如何感知服务端 createError 抛出的错误？</b></summary>
+
+useFetch 的 error.value 非空，error.value.statusCode / statusMessage / data 均可读；$fetch 会抛异常，捕获后取 error.statusCode 与 error.data。
+
+</details>
+
+<details>
+<summary><b>3. 为什么 server/middleware 里通常不能 return 响应体？</b></summary>
+
+中间件对每个请求生效，一旦返回响应体就会短路后续所有处理器，页面与 API 都会被拦截；只有刻意拦截（如鉴权拒绝）时才返回或抛错。
+
+</details>

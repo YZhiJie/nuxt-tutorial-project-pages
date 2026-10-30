@@ -1,0 +1,58 @@
+{
+  "ep": 3,
+  "slug": "EP.03-views-layouts",
+  "title": "组件与布局",
+  "part": "docs/03-views",
+  "panels": [
+    {
+      "title": "困境：导入地狱",
+      "speaker": "jiang",
+      "bubble": ["一个页面 import 二十行，", "改个组件名全局搜替换，", "布局复制粘贴第三遍了！"],
+      "code": [
+        "import Header from '../c/Header.vue'",
+        "import Footer from '../c/Footer.vue'",
+        "import Modal from '../c/Modal.vue'",
+        { "t": "// 相对路径 ../../ 数到眼花", "c": "#fbbf24" },
+        { "t": "// 布局各页各抄一份", "c": "#f472b6" }
+      ],
+      "note": ["手动导入让重构成本翻倍。", "布局靠复制，改版要改 N 处。"]
+    },
+    {
+      "title": "揭秘：自动导入",
+      "speaker": "shu",
+      "bubble": ["components/ 里组件免导入，", "layouts/ 里布局按名套用，", "模板里直接写标签。"],
+      "code": [
+        "app/components/App/Header.vue",
+        "  → <AppHeader /> 直接用",
+        "app/layouts/default.vue",
+        "  → 默认套住所有页面",
+        { "t": "// 约定替代 import", "c": "#34d399" }
+      ],
+      "note": ["目录嵌套会反映到组件名前缀。", "布局里用 <slot /> 渲染页面。"]
+    },
+    {
+      "title": "实证：布局与过渡",
+      "speaker": "jun",
+      "bubble": ["页面声明换布局，", "顺手加个渐隐过渡，", "一行 meta 全搞定！"],
+      "code": [
+        "definePageMeta({",
+        "  layout: 'admin',",
+        "  pageTransition:",
+        "    { name: 'fade', mode: 'out-in' }",
+        "})"
+      ],
+      "note": ["props 用 defineProps 声明类型。", "插槽让组件留出内容空洞。"]
+    },
+    {
+      "title": "结案：约定省心",
+      "speaker": "shu",
+      "bubble": ["组件自动导入省心智，", "布局统一收口骨架，", "过渡一行声明即可。"],
+      "pitfalls": [
+        "同名组件靠目录前缀区分",
+        "layout 里必须放 <slot />",
+        "过渡样式名与 CSS 类对应"
+      ],
+      "summary": "约定省导入，布局管骨架。"
+    }
+  ]
+}

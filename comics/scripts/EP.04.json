@@ -1,0 +1,57 @@
+{
+  "ep": 4,
+  "slug": "EP.04-data-fetching",
+  "title": "数据获取之道",
+  "part": "docs/04-data-fetching",
+  "panels": [
+    {
+      "title": "困境：白屏转圈",
+      "speaker": "jun",
+      "bubble": ["客户端才发请求，", "首屏白圈转不停，", "刷新还闪一下旧数据！"],
+      "code": [
+        "onMounted(async () => {",
+        "  const r = await fetch('/api/list')",
+        "  list.value = await r.json()",
+        "})",
+        { "t": "// SSR 输出空列表", "c": "#f472b6" },
+        { "t": "// 水合后整屏闪动", "c": "#fbbf24" }
+      ],
+      "note": ["onMounted 只在浏览器执行。", "服务端渲染的 HTML 里没有数据。"]
+    },
+    {
+      "title": "揭秘：useFetch",
+      "speaker": "shu",
+      "bubble": ["useFetch 服务端先取数，", "结果随 HTML 一起下发，", "客户端水合直接复用。"],
+      "code": [
+        "const { data, status, error } =",
+        "  await useFetch('/api/list')",
+        { "t": "// SSR: Nitro 内网直达", "c": "#34d399" },
+        { "t": "// CSR: 同 key 不再请求", "c": "#34d399" }
+      ],
+      "note": ["useFetch 等价 useAsyncData+$fetch。", "数据经 payload 序列化随页下发。"]
+    },
+    {
+      "title": "实证：同 key 共享",
+      "speaker": "jiang",
+      "bubble": ["父子组件写同 key，", "网络面板只见一次请求，", "refresh 一按全员更新！"],
+      "code": [
+        "// 组件 A 与组件 B",
+        "useFetch('/api/me', { key: 'me' })",
+        { "t": "// → Network 仅 1 次请求", "c": "#34d399" },
+        { "t": "refresh()  // 手动重取", "c": "#f472b6" }
+      ],
+      "note": ["key 相同的调用自动去重合并。", "refresh() 触发所有订阅者更新。"]
+    },
+    {
+      "title": "结案：取数分工",
+      "speaker": "shu",
+      "bubble": ["页面数据用 useFetch，", "事件动作用 $fetch，", "错误交给 error 兜底。"],
+      "pitfalls": [
+        "onMounted 取数破坏 SSR 水合",
+        "跨页面 key 冲突会串数据",
+        "$fetch 抛错要 try/catch 接住"
+      ],
+      "summary": "数据随 SSR 下行，水合零闪烁。"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+# nuxt-tutorial-project（Nuxt 4 实战教程）
+
+> 从入门到精通的 Nuxt 4 系统教程：24 章结构化文档（基础篇 01-08 / 进阶篇 09-16 / 精通篇 17-24），五段式体例（概念解析 / 典型应用场景 / 完整代码示例 / 最佳实践 / 常见问题）；另含 8 话四格漫画剧场与可运行示例工程 app/，覆盖 SSR/SSG/ISR、Nitro 服务端、Pinia 状态、数据缓存、性能优化、安全、测试与可观测性。
+
+当前版本：v2.0.0；内容更新记录见 README。
+
+## 教程正文
+
+- [01. Nuxt 4 全景认知](https://yzhijie.github.io/nuxt-tutorial-project-pages/01-what-is-nuxt)：本章示例：`app/nuxt.config.ts`、`shared/types/note.ts`、`app/pages/index.vue`
+- [02. 项目初始化与开发环境](https://yzhijie.github.io/nuxt-tutorial-project-pages/02-scaffolding)：本章示例：`app/nuxt.config.ts`、`app/app.vue`、`app/tsconfig.json`
+- [03. 文件路由与动态路由](https://yzhijie.github.io/nuxt-tutorial-project-pages/03-file-based-routing)：本章示例：`app/pages/index.vue`、`app/pages/notes/index.vue`、`app/pages/notes/[id].vue`
+- [04. 导航与路由中间件](https://yzhijie.github.io/nuxt-tutorial-project-pages/04-navigation-middleware)：本章示例：`app/components/AppHeader.vue`、`app/pages/login.vue`、`app/middleware/auth.ts`、`app/middleware/logger.global.ts`
+- [05. 组件开发与自动导入](https://yzhijie.github.io/nuxt-tutorial-project-pages/05-components)：本章示例：`app/components/NoteCard.vue`、`app/components/CounterBox.vue`、`app/components/AppHeader.vue`、`app/pages/playground.
+- [06. 布局系统与页面过渡](https://yzhijie.github.io/nuxt-tutorial-project-pages/06-layouts)：本章示例：`app/layouts/default.vue`、`app/layouts/blank.vue`、`app/pages/login.vue`、`app/app.vue`
+- [07. useFetch 与 useAsyncData](https://yzhijie.github.io/nuxt-tutorial-project-pages/07-usefetch)：本章示例：`app/pages/index.vue`、`app/pages/notes/index.vue`、`app/composables/useNotes.ts`、`app/pages/playground.vue`
+- [08. $fetch 与请求进阶](https://yzhijie.github.io/nuxt-tutorial-project-pages/08-fetch-advanced)：本章示例：`app/plugins/02.api.ts`、`app/pages/login.vue`、`app/server/api/notes/[id].get.ts`、`app/error.vue`
+- [09. useState 与 SSR 状态](https://yzhijie.github.io/nuxt-tutorial-project-pages/09-usestate)：本章示例：`app/composables/useCounter.ts`、`app/pages/playground.vue`、`app/pages/dashboard.vue`
+- [10. composables 与 Pinia](https://yzhijie.github.io/nuxt-tutorial-project-pages/10-composables-pinia)：本章示例：`app/composables/useNotes.ts`、`app/stores/counter.ts`、`app/stores/user.ts`、`app/pages/playground.vue`
+- [11. Nitro 服务端 API](https://yzhijie.github.io/nuxt-tutorial-project-pages/11-server-api)：本章示例：`server/api/hello.get.ts`、`server/api/notes/`、`server/middleware/logger.ts`
+- [12. 全栈实战：存储与鉴权](https://yzhijie.github.io/nuxt-tutorial-project-pages/12-fullstack)：本章示例：`server/utils/notes-store.ts`、`server/api/auth/`、`app/pages/login.vue`、`app/middleware/auth.ts`
+- [13. 插件、模块与 SEO](https://yzhijie.github.io/nuxt-tutorial-project-pages/13-plugins-modules-seo)：本章示例：`app/plugins/01.hello.client.ts`、`app/plugins/02.api.ts`、`app/nuxt.config.ts`、`app/pages/notes/[id].vue`
+- [14. TypeScript 与测试](https://yzhijie.github.io/nuxt-tutorial-project-pages/14-typescript-testing)：本章示例：`tsconfig.json`、`shared/types/note.ts`、`vitest.config.ts`、`tests/format.test.ts`、`app/pages/notes/index.vue`
+- [15. 构建与预渲染策略](https://yzhijie.github.io/nuxt-tutorial-project-pages/15-build-prerender)：本章示例：`app/nuxt.config.ts`、`package.json` 等
+- [16. 部署上线全攻略](https://yzhijie.github.io/nuxt-tutorial-project-pages/16-deploy)：本章示例：`app/nuxt.config.ts`、`Dockerfile`、`.github/workflows/deploy.yml` 等
+- [17. Nuxt 渲染内部机制](https://yzhijie.github.io/nuxt-tutorial-project-pages/17-rendering-internals)：本章示例：`app/nuxt.config.ts`、`app/pages/render/isr.vue`、`app/components/ServerClock.server.vue`
+- [18. 性能优化与 Core Web Vitals](https://yzhijie.github.io/nuxt-tutorial-project-pages/18-performance)：本章示例：`app/nuxt.config.ts`、`app/plugins/web-vitals.client.ts`、`app/components/NoteCard.vue`
+- [19. 数据缓存与状态一致性](https://yzhijie.github.io/nuxt-tutorial-project-pages/19-data-caching)：本章示例：`app/composables/useNotesCached.ts`、`app/pages/notes/admin.vue`、`app/nuxt.config.ts`
+- [20. 大型 Nuxt 应用架构](https://yzhijie.github.io/nuxt-tutorial-project-pages/20-large-scale-architecture)：本章示例：`layers/base/nuxt.config.ts`、`modules/audit/index.ts`、`pnpm-workspace.yaml`、`app/nuxt.config.ts`
+- [21. Nuxt 安全实战](https://yzhijie.github.io/nuxt-tutorial-project-pages/21-security)：本章示例：`app/server/middleware/01.security.ts`、`app/server/api/auth/login.post.ts`、`app/utils/sanitize.ts`、`app/nuxt.config
+- [22. 测试体系进阶](https://yzhijie.github.io/nuxt-tutorial-project-pages/22-testing-advanced)：本章示例：`app/vitest.config.ts`、`app/tests/composables/useNotes.test.ts`、`app/tests/components/NoteCard.test.ts`、`app/tests/
+- [23. Nuxt 生态主流方案](https://yzhijie.github.io/nuxt-tutorial-project-pages/23-ecosystem-solutions)：本章示例：`app/nuxt.config.ts`、`app/pages/docs/[...slug].vue`、`app/pages/index.vue`、`app/server/api/auth/github.get.ts`
+- [24. 可观测性与生产调优](https://yzhijie.github.io/nuxt-tutorial-project-pages/24-observability)：本章示例：`app/server/plugins/observability.ts`、`app/plugins/web-vitals.client.ts`、`app/pages/dashboard.vue`、`app/composables
+
+## 配套资源
+
+- [漫画剧场（8 话）](https://yzhijie.github.io/nuxt-tutorial-project-pages/comics/index.html)：每话一幅四格 SVG 原画 + 讲解 MD（剧情回顾 / 知识点拆解 / 坑点清单 / 自测题），与正文章节一一对应
+- [示例工程 app/](https://yzhijie.github.io/nuxt-tutorial-project-pages/app/)：Nuxt 4 可运行示例，覆盖路由 / 布局 / 组件 / useFetch / Pinia / 服务端 API / 中间件 / SEO 等章节配套代码
+- [知识地图 JSON](https://yzhijie.github.io/nuxt-tutorial-project-pages/knowledge-map.json)：全部章节小节的机器可读结构化索引，适合程序化检索
+
+## 单章全文（按章切分，适合按需抓取）
+
+- [01. Nuxt 4 全景认知 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/01-what-is-nuxt.txt)
+- [02. 项目初始化与开发环境 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/02-scaffolding.txt)
+- [03. 文件路由与动态路由 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/03-file-based-routing.txt)
+- [04. 导航与路由中间件 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/04-navigation-middleware.txt)
+- [05. 组件开发与自动导入 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/05-components.txt)
+- [06. 布局系统与页面过渡 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/06-layouts.txt)
+- [07. useFetch 与 useAsyncData 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/07-usefetch.txt)
+- [08. $fetch 与请求进阶 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/08-fetch-advanced.txt)
+- [09. useState 与 SSR 状态 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/09-usestate.txt)
+- [10. composables 与 Pinia 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/10-composables-pinia.txt)
+- [11. Nitro 服务端 API 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/11-server-api.txt)
+- [12. 全栈实战：存储与鉴权 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/12-fullstack.txt)
+- [13. 插件、模块与 SEO 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/13-plugins-modules-seo.txt)
+- [14. TypeScript 与测试 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/14-typescript-testing.txt)
+- [15. 构建与预渲染策略 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/15-build-prerender.txt)
+- [16. 部署上线全攻略 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/16-deploy.txt)
+- [17. Nuxt 渲染内部机制 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/17-rendering-internals.txt)
+- [18. 性能优化与 Core Web Vitals 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/18-performance.txt)
+- [19. 数据缓存与状态一致性 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/19-data-caching.txt)
+- [20. 大型 Nuxt 应用架构 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/20-large-scale-architecture.txt)
+- [21. Nuxt 安全实战 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/21-security.txt)
+- [22. 测试体系进阶 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/22-testing-advanced.txt)
+- [23. Nuxt 生态主流方案 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/23-ecosystem-solutions.txt)
+- [24. 可观测性与生产调优 全文](https://yzhijie.github.io/nuxt-tutorial-project-pages/llms/24-observability.txt)

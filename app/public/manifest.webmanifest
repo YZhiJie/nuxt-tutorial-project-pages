@@ -1,0 +1,24 @@
+{
+    "id": "/",
+    "name": "Nuxt 企业工程练功房",
+    "short_name": "练功房",
+    "description": "从路由、渲染、数据到安全、实时与 AI 集成的企业级 Nuxt 工程示例站。",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+    "orientation": "any",
+    "theme_color": "#0a0a0c",
+    "background_color": "#0a0a0c",
+    "lang": "zh-CN",
+    "dir": "ltr",
+    "categories": ["education", "developer"],
+    "icons": [
+        {
+            "src": "/favicon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any maskable"
+        }
+    ]
+}
