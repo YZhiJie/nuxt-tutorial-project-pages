@@ -1,0 +1,223 @@
+# 25. Nuxt Module 开发：从本地模块到可发布包（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/25-nuxt-module-authoring
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 25. Nuxt Module 开发：从本地模块到可发布包
+
+> 本章示例：`app/modules/learnhub-toolkit.ts`、`app/modules/runtime/module-info.ts`、`app/modules/runtime/module-boot.ts`
+> 验证方式：`cd app && npm run typecheck && npm run build && node .output/server/index.mjs`，另开终端 `curl http://localhost:3000/api/lab/module-info`
+
+## 现象与问题
+
+### 现象 1：模块在 `nuxt prepare` 时报错，改完却「像没生效」
+
+第一次把 `addTemplate` 写成 `{ fileName: 'learnhub-toolkit.json' }`，执行 `npx nuxi prepare` 得到：
+
+```text
+[warn] [NUXT_B8011] The template is missing a `filename`
+[error] The template is missing a `filename`
+```
+
+改成 `filename` 后 prepare 通过，但构建目录里仍然找不到这个文件。很多人会误以为模块没被加载，实际是 **模板默认只写进虚拟文件系统（VFS）**，不落盘。`addTemplate` 返回的对象里有 `dst`（目标绝对路径）和 `write` 标记：只有 `write: true`，或文件名以 `.d.ts` / `.d.mts` / `.d.cts` 结尾的声明文件，才会写到磁盘。
+
+### 现象 2：服务端 handler 引用了 `#build/...`，Nitro 构建直接失败
+
+模板生成后想在接口里读它，于是写了 `import buildMeta from '#build/learnhub-toolkit.json'`。`npm run build` 报：
+
+```text
+[plugin impound] Vue app aliases are not allowed in server runtime.
+[importing `#build/learnhub-toolkit.json` from `modules/runtime/module-info.ts`]
+```
+
+`#build` 是 Nuxt **应用侧**（Vue/Vite）的构建目录别名，Nitro 服务端运行时不允许导入。服务端要读构建期数据，正确做法是走 `runtimeConfig`、`addServerTemplate` 生成的 `#internal/...` 虚拟模块，或把文件写到服务端可访问的存储/静态目录；不能把客户端别名当通用路径用。
+
+### 现象 3：模块发到 npm 后，别人装了「一点反应都没有」
+
+本地 `modules/*.ts` 能被自动扫描，是因为 Nuxt 会扫描 **`srcDir/modules`**。发布成包后，安装方式变成 `modules: ['learnhub-toolkit']`，此时解析依赖 `package.json` 的 `exports`、`main`/`module` 入口，以及 `meta.configKey` 对应的配置键。缺少入口、版本范围写错、`peerDependencies` 没声明 `nuxt`，都会表现为「装了但没执行」。
+
+## 源码定位
+
+### 本地模块目录是怎么被扫到的
+
+Nuxt 的模块解析入口是 `node_modules/nuxt/dist/index.mjs` 的 `resolveModules(nuxt)`。关键片段（Nuxt 4.6.2）：
+
+```ts
+const modulesDir = resolve(
+  config.srcDir,
+  (config.rootDir === nuxt.options.rootDir ? nuxt.options.dir : config.dir)?.modules || 'modules',
+);
+const layerModules = await resolveFiles(modulesDir, [
+  `*{${nuxt.options.extensions.join(',')}}`,
+  `*/index{${nuxt.options.extensions.join(',')}}`,
+]);
+```
+
+这解释了为什么本项目的模块放在 `app/modules/learnhub-toolkit.ts` 就能生效：Nuxt 4 的 `srcDir` 是项目根下的 `app/`，所以扫描目录是 `app/modules`，匹配 `*.ts` 与 `*/index.ts`。同时 `config.modules` 里显式写的模块（例如 `@pinia/nuxt`）走 `resolveModuleWithOptions()`，与本地扫描是两条路径。
+
+### `defineNuxtModule` 做了什么
+
+`@nuxt/kit` 的 `defineNuxtModule(definition)` 会归一化三种写法（直接对象、工厂函数、`.with()`），把 `meta`、`defaults`、`setup` 收进统一的模块定义，并在安装时合并用户配置。`meta` 里的 `configKey` 决定用户在 `nuxt.config.ts` 中写哪个键来传 options；本模块声明为 `learnhubToolkit`，所以以后可以这样覆盖默认值：
+
+```ts
+export default defineNuxtConfig({
+  learnhubToolkit: { prefix: '/api/internal', enabled: true },
+});
+```
+
+`setup(options, nuxt)` 是模块唯一需要实现的函数：此时 Nuxt 配置已归一化、模块尚未开始构建，适合改 `runtimeConfig`、注册 handler/plugin、追加模板。
+
+### `addTemplate` 的虚拟文件与落盘条件
+
+`@nuxt/kit` 的 `normalizeTemplate()` 会把 `filename` 解析成 `buildDir/filename`，并挂到 `nuxt.options.build.templates`。真正处理模板的是 `nuxt/dist/index.mjs` 的 `generateApp(nuxt, app)`：
+
+- 模板内容先写进 `nuxt.vfs[fullPath]`，同时以 `#build/<filename>` 暴露给应用侧；
+- 只有 `template.write` 为真（或声明文件）才追加 `writeFileSync(fullPath, contents)`；
+- 开发期模板变化会触发热更新，构建期则一次性写入。
+
+本模块用 `write: true` 把 `learnhub-toolkit.json` 落盘，因此构建后可以用 `find` 直接核对；接口数据仍走 `runtimeConfig`，避免触发上面 `#build` 的服务端别名限制。
+
+### 服务端 handler 与 Nitro 的注册路径
+
+`addServerHandler({ route, handler })` 不经过 `server/api` 目录，而是把 handler 直接追加到 Nitro 的 handlers 列表。构建产物里可以看到它和文件路由混在一起（`.output/server/chunks/nitro/nitro.mjs`）：
+
+```ts
+{ route: '/api/lab/module-info', handler: _LyVTTW, lazy: false, middleware: false, method: undefined }
+```
+
+Nitro 的 `createNitroApp()`（`nitropack/dist/runtime/internal/app.mjs`）遍历 `handlers`：`middleware: true` 的走 `h3App.use()`，普通路由走 `router.use()`，最后才挂载 `h3App.use(config.app.baseURL, router.handler)`。所以模块注册的 handler 和项目自己的 `server/api/**` 在运行时完全同权，区别只在「谁负责维护路径」。
+
+### 构建 hook 与启动 plugin 的边界
+
+- `nuxt.hook('build:done', ...)`：构建结束触发，适合打日志、校验产物、生成清单；不会进入运行时。
+- `addServerPlugin()` 注册的是 **Nitro 运行时插件**，在 `runNitroPlugins(nitroApp)` 中执行一次（进程启动时）。本模块的启动日志 `[learnhub-toolkit] ready ...` 就来自这里。
+
+两者容易混淆：想在「构建后做检查」用前者，想在「服务启动时初始化连接/打印版本」用后者。
+
+## 最小实验
+
+以下命令都在 `app/` 下执行，均为本仓库实际跑通过的路径。
+
+### 1. 类型检查与构建
+
+```bash
+cd app
+npm run typecheck   # 本项目基线会打印 vue-router volar 子路径告警，退出码仍为 0
+npm run build
+```
+
+构建日志里应出现两行模块输出：
+
+```text
+[info] [learnhub-toolkit] template written to <buildDir>/learnhub-toolkit.json
+[info] [learnhub-toolkit] ready learnhub-toolkit@0.1.0 (built 2026-11-04T14:59:28.625Z)
+```
+
+Nuxt 4.6 的构建目录可能是 `node_modules/.cache/nuxt/.nuxt`，不要写死 `.nuxt`：
+
+```bash
+find . -name learnhub-toolkit.json -not -path './node_modules/.pnpm/*'
+```
+
+内容应类似：
+
+```json
+{
+  "name": "learnhub-toolkit",
+  "version": "0.1.0",
+  "buildTime": "2026-11-04T14:59:28.625Z"
+}
+```
+
+### 2. 启动生产产物并请求模块接口
+
+```bash
+PORT=3100 node .output/server/index.mjs
+# 另开终端
+curl -sS http://127.0.0.1:3100/api/lab/module-info
+```
+
+实测响应（`requestId` 来自项目已有的 `server/middleware/observability.ts`，说明模块 handler 与全局中间件共享同一个 event 上下文）：
+
+```json
+{
+  "module": { "name": "learnhub-toolkit", "version": "0.1.0", "buildTime": "2026-11-04T14:59:28.625Z" },
+  "requestId": "0b132f61-6e47-49b5-94b4-52435beedbdf",
+  "at": "2026-11-04T14:59:50.767Z"
+}
+```
+
+响应头同时包含 `cache-control: no-store` 与 `x-request-id`。启动进程的 stdout 里能看到模块就绪日志、`[server] GET /api/lab/module-info - 3ms` 与观测中间件的 JSON 访问日志，三者同链。
+
+### 3. 验证「开关」与配置覆盖
+
+在 `app/nuxt.config.ts` 临时加上：
+
+```ts
+export default defineNuxtConfig({
+  learnhubToolkit: { enabled: false },
+});
+```
+
+重新构建后接口应变成 404，模块日志与模板都不再出现；删掉配置即恢复。这一步验证的是 `defaults` 合并与 `setup` 里的提前返回，而不是 handler 级别的运行时开关。
+
+### 4. Playground 调试的标准闭环（发布前的本地验证）
+
+本地模块适合直接放在主项目；但**要发布成 npm 包**时，推荐独立仓库 + playground：
+
+```text
+learnhub-toolkit/
+├── src/
+│   ├── module.ts            # defineNuxtModule(...)
+│   └── runtime/             # handler / plugin 模板
+├── playground/
+│   ├── nuxt.config.ts       # modules: ['../src/module']
+│   └── app.vue
+├── package.json             # exports: { ".": "./dist/module.mjs" }
+└── test/                    # 模块级单测（可选 @nuxt/test-utils）
+```
+
+常用脚本（`@nuxt/module-builder` 提供 `build`，需要作为 devDependency 安装）：
+
+```json
+{
+  "scripts": {
+    "dev:prepare": "nuxt-module-build build --stub && nuxt-module-build prepare",
+    "dev": "nuxi dev playground",
+    "build": "nuxt-module-build build",
+    "prepack": "npm run build"
+  }
+}
+```
+
+`dev:prepare` 先用 stub 把 `dist` 指回 `src`，这样 playground 里的 HMR 能覆盖模块源码；`prepack` 保证发布前一定产出真实产物。版本与发布的最小闭环是：
+
+1. `meta.name` / `meta.version` 与 `package.json` 的 `name` / `version` 保持一致；
+2. `peerDependencies` 声明 `nuxt: "^4.0.0"`，把 Nuxt 当宿主而不是普通依赖；
+3. 在 playground 里用 `learnhubToolkit: {...}` 覆盖一次默认配置，确认类型提示可用；
+4. `npm pack --dry-run` 检查 `files` / `exports`，再 `npm publish`；
+5. 发布后在一个全新 Nuxt 项目里 `modules: ['learnhub-toolkit']` 安装验证，而不是只在源码仓库里验证。
+
+## 生产取舍
+
+| 取舍点 | 选择 | 理由 |
+| --- | --- | --- |
+| 本地模块 vs 发布包 | 团队内部约定用本地 `modules/`；跨项目复用才发布 | 本地模块零发布成本，但无法版本化、无法被其他仓库消费 |
+| `runtimeConfig` vs 模板文件 | 运行时读写走 `runtimeConfig`；模板只做构建期产物/清单 | 模板默认是虚拟文件，服务端别名的边界容易踩坑 |
+| `addServerHandler` vs `server/api` | 模块自带能力用 `addServerHandler`；业务接口仍放 `server/api` | 模块要能独立安装，不能依赖宿主目录结构 |
+| 构建 hook vs 运行时 plugin | 校验/生成用 hook；连接初始化/日志用 plugin | 两者生命周期不同，放错位置会导致「构建时执行了运行时代码」 |
+| 模块开关 | 放在模块 options，`setup` 里提前返回 | 关闭后连 handler 都不注册，避免留半开状态 |
+| 版本策略 | `peerDependencies` 声明 Nuxt 主版本；模块自身语义化版本 | 避免把 Nuxt 打进依赖树，也避免跨大版本静默不兼容 |
+
+落地时还要守住三条边界：
+
+1. **不要从模块里 import 宿主应用源码**（`~/...`、`#build/...`）。模块要能装进任意 Nuxt 项目，宿主路径在发布后不存在。
+2. **模块的 `setup` 必须幂等**。Nuxt 可能因配置变化重新执行安装；重复 `addServerHandler` 会产生重复路由。
+3. **模块对外只暴露 `meta.configKey` 这一层配置**。内部实现（handler 文件名、存储 key）不要写进文档承诺，否则升级即破坏兼容。
+
+## 评审题
+
+1. 你的模块用 `addTemplate` 生成了一个 JSON，接口里需要读它。给出两种可行方案，并说明为什么 `#build/...` 不行。
+2. 一个模块在 `nuxi dev` 正常，`nuxi build` 后接口 404。按「本地扫描 → handler 注册 → 产物检查」的顺序，写出你的排查步骤与每一步要看的文件。
+3. 模块 A 依赖 `runtimeConfig.public.xxx`，模块 B 直接读 `process.env.XXX`。哪个更适合边缘部署？为什么？
+4. 你要把模块从 `0.1.0` 升到 `0.2.0`，但旧项目仍在使用 `0.1.x`。`peerDependencies`、`meta.version`、`exports` 三处分别该怎么处理？
+5. 模块的 `setup` 里执行了 `await fetch(...)` 拉远程配置。这个做法在 CI、离线构建、边缘部署各有什么风险？给出替代方案。

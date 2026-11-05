@@ -1,0 +1,58 @@
+{
+  "ep": 1,
+  "slug": "EP.01-nuxt-intro",
+  "title": "初识 Nuxt 4",
+  "part": "docs/01-getting-started",
+  "panels": [
+    {
+      "title": "困境：重复造轮子",
+      "speaker": "jun",
+      "bubble": ["Vue 单页应用要做 SEO，", "路由、SSR、元信息全手写，", "上线前夜还在调水合！"],
+      "code": [
+        "// 纯 Vue 项目的隐痛",
+        "router 手搓 × SEO 没有",
+        { "t": "SSR 接 vite-plugin 半残", "c": "#fbbf24" },
+        "// 基础设施吃掉一半工时",
+        { "t": "// 业务反而没空写", "c": "#f472b6" }
+      ],
+      "note": ["页面能跑，但地基全是临时板房。", "每个项目都重复发明同一批轮子。"]
+    },
+    {
+      "title": "揭秘：全栈框架",
+      "speaker": "shu",
+      "bubble": ["Nuxt 是 Vue 的上层框架：", "路由、SSR、数据获取", "全部按约定自动装配。"],
+      "code": [
+        "app/pages/   → 自动路由",
+        "app/components/ → 自动导入",
+        "server/api/  → 后端接口",
+        { "t": "// 约定优于配置", "c": "#34d399" },
+        { "t": "// 目录即架构", "c": "#34d399" }
+      ],
+      "note": ["Nuxt 4 基于 Vue 3 + Vite + Nitro，", "一套代码覆盖前端与服务端。"]
+    },
+    {
+      "title": "实证：三分钟起跑",
+      "speaker": "jiang",
+      "bubble": ["一条命令脚手架，", "开发服务器直接起，", "这就是开箱即用？"],
+      "code": [
+        "npm create nuxt my-app",
+        "cd my-app && npm install",
+        "npm run dev",
+        { "t": "// → http://localhost:3000", "c": "#fbbf24" },
+        { "t": "// DevTools 面板随项目自带", "c": "#34d399" }
+      ],
+      "note": ["create-nuxt 生成最小骨架，", "nuxi 是 Nuxt 的官方 CLI 入口。"]
+    },
+    {
+      "title": "结案：何时选 Nuxt",
+      "speaker": "shu",
+      "bubble": ["内容站、全栈应用、", "需要 SEO 的产品，", "Nuxt 是默认答案。"],
+      "pitfalls": [
+        "Nuxt 4 默认源码在 app/ 目录",
+        "Node 版本需 18.20 以上",
+        "纯后台内部系统 SPA 模式更轻"
+      ],
+      "summary": "框架管基础设施，你只管业务。"
+    }
+  ]
+}

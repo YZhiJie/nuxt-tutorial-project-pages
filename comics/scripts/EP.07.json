@@ -1,0 +1,55 @@
+{
+  "ep": 7,
+  "slug": "EP.07-engineering",
+  "title": "工程化体检",
+  "part": "docs/07-engineering",
+  "panels": [
+    {
+      "title": "困境：质量欠账",
+      "speaker": "jiang",
+      "bubble": ["分享链接没卡片预览，", "第三方 SDK 全局污染，", "类型报错上线才发现！"],
+      "code": [
+        "// 元信息手贴 index.html",
+        { "t": "// og:title 各页忘了改", "c": "#fbbf24" },
+        { "t": "// SDK 直接塞 window", "c": "#f472b6" },
+        { "t": "// ts 报错当没看见", "c": "#f472b6" }
+      ],
+      "note": ["工程问题拖到最后都要还。", "搜索引擎只认真 HTML 首屏。"]
+    },
+    {
+      "title": "揭秘：三板斧",
+      "speaker": "shu",
+      "bubble": ["插件统一挂载 SDK，", "模块一行接入生态，", "useSeoMeta 管元信息。"],
+      "code": [
+        "// app/plugins/ga.client.ts",
+        "export default defineNuxtPlugin(",
+        "  () => ({ provide: { ga } }))",
+        "useSeoMeta({ ogTitle: '首页' })"
+      ],
+      "note": [".client/.server 后缀限定运行端。", "模块在 nuxt.config 里注册。"]
+    },
+    {
+      "title": "实证：体检全绿",
+      "speaker": "jun",
+      "bubble": ["提交前跑一遍体检，", "类型、单测全绿，", "上线终于睡得着！"],
+      "code": [
+        "nuxi typecheck",
+        "npx vitest run",
+        { "t": "// 0 errors, 12 tests 全绿", "c": "#34d399" },
+        { "t": "// CI 里再跑一遍双保险", "c": "#34d399" }
+      ],
+      "note": ["typecheck 基于自动生成的类型。", "@nuxt/test-utils 支持组件测试。"]
+    },
+    {
+      "title": "结案：工程底线",
+      "speaker": "shu",
+      "bubble": ["插件收口副作用，", "模块复用生态力，", "类型测试守底线。"],
+      "pitfalls": [
+        "插件顺序按文件名数字排",
+        "useSeoMeta 放 setup 顶层",
+        "typecheck 前先 nuxi prepare"
+      ],
+      "summary": "工程化是给未来自己买保险。"
+    }
+  ]
+}

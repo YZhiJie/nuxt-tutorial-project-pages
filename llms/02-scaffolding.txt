@@ -1,0 +1,159 @@
+# 02. 项目初始化与开发环境（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/02-scaffolding
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 02. 项目初始化与开发环境
+
+> 本章示例：`app/nuxt.config.ts`、`app/app.vue`、`app/tsconfig.json`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/`
+
+## 概念解析
+
+Nuxt 4 要求 Node.js 18.20 及以上版本（建议使用 LTS）。先用 `node -v` 确认环境，再使用官方脚手架命令 `npm create nuxt@latest <项目名>` 初始化项目——它会交互式地询问包管理器、是否初始化 git 仓库等选项，随后生成一套最小可运行的 Nuxt 4 工程。创建完成后进入目录执行 `npm install && npm run dev`，即可在 `http://localhost:3000` 看到页面。
+
+生成的目录结构体现了 Nuxt 4 的边界划分：`app/` 是应用源码目录（`app.vue`、`pages/`、`components/`、`layouts/`、`middleware/`、`composables/`、`utils/` 等都在其中）；`server/` 存放 Nitro 服务端代码（API、服务端中间件、插件）；`shared/` 存放前后端共享的类型与工具（在 app 中以 `#shared/...` 引用）；`public/` 是原样拷贝到站点根路径的静态资源目录；根部的 `nuxt.config.ts` 是唯一配置文件；`tsconfig.json` 通过 `extends: './.nuxt/tsconfig.json'` 继承 Nuxt 自动生成的类型配置，让自动导入的 API 也有完整类型提示。
+
+日常开发围绕 nuxi CLI 展开，常用命令如下：
+
+- `nuxi dev`：启动开发服务器，`--port` 可改端口。
+- `nuxi build`：构建生产产物。
+- `nuxi generate`：生成纯静态站点（SSG）。
+- `nuxi preview`：本地预览构建结果。
+- `nuxi prepare`：重新生成 `.nuxt` 类型，刚 clone 项目或 CI 中常用。
+- `nuxi typecheck`：全量类型检查（需安装 `typescript` 与 `vue-tsc`）。
+- `nuxi add <模块>`：一键安装并注册官方模块，如 `nuxi add @pinia/nuxt`。
+- `nuxi analyze`：分析构建产物体积。
+
+`package.json` 中的 `dev/build/generate/preview/postinstall` 脚本本质都是对 nuxi 的封装，也可以随时用 `npx nuxi <命令>` 直接调用。
+
+开发体验有两件法宝：一是 Nuxt DevTools，在开发服务器打开的页面中按 Shift + Alt + D（macOS 为 Shift + Option + D）即可呼出，可查看页面路由、组件依赖、composables 状态与请求耗时；二是入口文件 `app/app.vue`——当存在 `pages/` 目录时，用 `<NuxtLayout><NuxtPage /></NuxtLayout>` 承接布局与页面渲染。最后别忘了 `nuxt.config.ts` 里的 `compatibilityDate`：Nuxt 4 必填，用于锁定 Nitro 等平台行为，脚手架会自动写入一个日期，团队协作时不要随意改动。
+
+## 典型应用场景
+
+- **全新项目起步**：一条 `npm create nuxt@latest` 得到约定完备的工程，省去手工搭建路由、SSR、TS 的成本。
+- **团队协作统一基线**：`nuxi prepare` + 继承 `.nuxt/tsconfig.json`，保证每个成员与 CI 拿到一致的类型环境。
+- **接入生态模块**：`nuxi add @pinia/nuxt` 自动完成依赖安装与 `modules` 注册，避免手改配置遗漏。
+- **交付前验证**：`nuxi build` + `nuxi preview` 在本地模拟生产行为；纯静态站点则走 `nuxi generate`。
+- **质量门禁**：在 CI 中跑 `nuxi typecheck`，把类型错误拦在代码合并之前。
+
+## 完整代码示例
+
+```bash
+# 终端会话（macOS zsh），依次执行
+node -v                                  # 确认 >= 18.20，建议使用 LTS
+npm create nuxt@latest nuxt-learnhub     # 交互式创建项目，按提示选择包管理器等
+cd nuxt-learnhub
+npm install
+npm run dev                              # 启动开发服务器，默认 http://localhost:3000
+npx nuxi prepare                         # 重新生成 .nuxt 类型（clone 后 / CI 常用）
+npx nuxi typecheck                       # 全量类型检查（需 typescript 与 vue-tsc）
+npm run build && npm run preview         # 本地验证生产构建
+npm run generate                         # 如需纯静态站点（SSG）
+```
+
+> 运行方式：逐行在终端执行；最后一步启动后，在页面中按 Shift + Alt + D（macOS 为 Shift + Option + D）可打开 Nuxt DevTools。
+
+```vue
+<!-- 文件: app/app.vue -->
+<script setup lang="ts">
+// 应用入口：所有页面的公共外壳
+const config = useRuntimeConfig()
+const siteName = config.public.siteName    // 读取 nuxt.config.ts 暴露的公共配置
+</script>
+
+<template>
+    <!-- NuxtLayout 启用布局系统，NuxtPage 渲染当前路由页面 -->
+    <NuxtLayout>
+        <NuxtPage />
+    </NuxtLayout>
+</template>
+```
+
+> 运行方式：`npm run dev` 后访问 `http://localhost:3000/` ，`app.vue` 是所有页面的外壳；删除 `app.vue` 时 Nuxt 会使用内置默认入口。
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    devtools: { enabled: true },    // Nuxt DevTools（dev 下默认开启，此处显式声明）
+    modules: ['@pinia/nuxt'],    // nuxi add @pinia/nuxt 会自动写入这一行
+    runtimeConfig: {
+        public: {
+            siteName: 'Nuxt LearnHub'    // 客户端可通过 useRuntimeConfig().public.siteName 读取
+        }
+    },
+    routeRules: {
+        '/admin/**': { ssr: false }    // 后台路径走纯客户端渲染
+    },
+    compatibilityDate: '2025-07-15'    // 必填：锁定 Nitro 行为，团队内保持一致
+})
+```
+
+> 运行方式：修改该文件后开发服务器会自动重启生效；`nuxi add` 安装模块时会自动更新 `modules` 数组。
+
+```json
+// 文件: app/tsconfig.json
+// .nuxt/tsconfig.json 由 nuxi prepare 自动生成，内含路径别名与自动导入类型
+{
+    "extends": "./.nuxt/tsconfig.json"
+}
+```
+
+> 运行方式：执行 `npx nuxi prepare` 生成 `.nuxt/tsconfig.json` 后即可获得完整类型提示；该文件本身不需要手改。
+
+## 最佳实践
+
+- **Node 版本钉在 LTS**：Nuxt 4 要求 ≥ 18.20，建议团队统一 20/22 LTS，并用 `.nvmrc` 或 `engines` 字段固化。
+- **`postinstall: nuxi prepare` 不要删**：脚手架默认脚本，保证 clone 后装依赖即生成类型，CI 里同样受益。
+- **加模块用 `nuxi add`**：自动安装依赖并注册到 `modules`，比手动 `npm i` + 改配置更不容易出错。
+- **`.nuxt/` 不入库**：它是构建期生成物，默认已被 `.gitignore` 忽略；类型异常时先 `nuxi cleanup` 再 `nuxi prepare`。
+- **`compatibilityDate` 全队统一**：它影响 Nitro 行为，升级 Nuxt 时按官方指南评估是否调整，不要各自为政。
+- **客户端配置放 `runtimeConfig.public`**：站点名这类可公开配置放这里，服务端密钥永远不要进 `public`。
+
+## 常见问题
+
+### Q：`npm create nuxt@latest` 卡在交互界面或下载很慢怎么办？
+A：先确认 Node ≥ 18.20 且网络可访问 npm registry，必要时切换镜像源。交互项一般只有包管理器与是否初始化 git，按提示选择即可。
+
+### Q：`app/`、`server/`、`shared/` 的分工到底是什么？
+A：`app/` 放应用层源码（页面、组件、composables）；`server/` 放 Nitro 服务端代码（`server/api` 接口等）；`shared/` 放两侧共享的类型与工具，在 app 中以 `#shared/...` 引用。
+
+### Q：执行 `nuxi typecheck` 报错找不到 `vue-tsc`？
+A：类型检查需要安装 `typescript` 与 `vue-tsc` 开发依赖：`npm i -D typescript vue-tsc`，然后重新执行 `npx nuxi typecheck`。
+
+### Q：DevTools 呼不出来？
+A：DevTools 只在开发服务器（`nuxi dev`）下可用，需在页面获得焦点后按 Shift + Alt + D（macOS：Shift + Option + D）；也可点击页面上的 Nuxt DevTools 入口图标。
+
+## 小结
+
+- Node ≥ 18.20，用 `npm create nuxt@latest` 创建项目，`npm run dev` 启动开发服务器。
+- 目录边界：`app/` 应用源码、`server/` 服务端、`shared/` 前后端共享、`public/` 静态资源。
+- 根 `tsconfig.json` 继承 `.nuxt/tsconfig.json`，配合 `nuxi prepare` 获得完整自动导入类型。
+- nuxi 常用命令：dev / build / generate / preview / prepare / typecheck / add / analyze。
+- DevTools 快捷键 Shift + Alt + D（macOS Shift + Option + D）；`compatibilityDate` 必填且全队统一。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-1" target="_blank" rel="noopener">EP.01 初识 Nuxt 4</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 为什么 `tsconfig.json` 只需要一行 `extends: './.nuxt/tsconfig.json'`？</b></summary>
+
+Nuxt 在 `.nuxt/` 中自动生成了包含路径别名、自动导入类型声明的完整 TS 配置，根配置继承它即可让编辑器与 `nuxi typecheck` 识别这些能力；该生成文件由 `nuxi prepare` 产出，不入库。
+
+</details>
+
+<details>
+<summary><b>2. 想给项目接入 Pinia，最省事的命令是什么？它会做哪些事？</b></summary>
+
+执行 `npx nuxi add @pinia/nuxt`。它会自动安装 `@pinia/nuxt` 依赖并把 `'@pinia/nuxt'` 写入 `nuxt.config.ts` 的 `modules` 数组，免去手动配置。
+
+</details>
+
+<details>
+<summary><b>3. `nuxi build` 与 `nuxi generate` 的产物有什么区别？</b></summary>
+
+`build` 产出需要 Node 等运行时支撑的服务端应用（可含 SSR 与服务端 API）；`generate` 产出纯静态 HTML 与资源（SSG），可部署到任意静态托管。选择取决于是否需要服务端动态能力。
+
+</details>

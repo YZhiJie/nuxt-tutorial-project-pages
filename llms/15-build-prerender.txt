@@ -1,0 +1,160 @@
+# 15. 构建与预渲染策略（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/15-build-prerender
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 15. 构建与预渲染策略
+
+> 本章示例：`app/nuxt.config.ts`、`package.json` 等
+> 运行方式：`cd app && npm install && npm run build && npm run preview`；全静态站点用 `npm run generate` 后查看 `.output/public`
+
+## 概念解析
+
+**`nuxi build` 的产物是自包含的 `.output/` 目录**，这是理解 Nuxt 部署的关键。里面主要分两块：`server/index.mjs` 是 Nitro 打包后的服务端入口（内嵌了渲染器、API 路由与中间件，一个 Node 进程即可跑起来）；`public/` 是可直接交给 CDN 的静态资源（JS/CSS 产物、图片、`public/` 目录原样拷贝）。整个 `.output/` 不依赖源码与 node_modules 即可运行，拷贝到任何有 Node 的环境 `node .output/server/index.mjs` 就能上线。
+
+**Nuxt 4 的渲染不是全站一刀切，而是按路由定制的**。`routeRules` 让你对每类路径声明策略：`ssr: false` 让某子树纯客户端渲染（如后台管理）；`prerender: true` 在构建时生成静态 HTML；`swr: 3600`（秒）启用 stale-while-revalidate——命中缓存直接返回、后台异步再生；`isr: 3600` 是增量静态再生（ISR），等价语义，让内容页在静态与新鲜之间取得平衡。此外还有 `headers`（缓存与响应头）、`redirect`、`cors` 等规则，全部由 Nitro 在边缘/服务端层统一执行。
+
+**`nuxi generate` 是全静态预渲染**：Nitro 从入口页开始爬取页面中的链接（`nitro.prerender.crawlLinks`）自动发现路由，逐个渲染成 HTML 落到 `.output/public/`，产出的纯静态文件可丢到任意静态托管。动态路由爬取不到参数时，用 `nitro.prerender.routes` 显式给出清单。预渲染还会做 **payload 提取**：页面里 `useFetch`/`useAsyncData` 的数据被单独抽成 `_payload.json`，客户端导航时直接取数据文件而不是重新请求 API，静态站点也能秒开二级页面。**构建目标由 Nitro preset 决定**：默认 `node-server`，用 `NITRO_PRESET` 环境变量切换为 `static`、`vercel`、`cloudflare-pages` 等，同一份代码产出对应平台的最优形态。
+
+## 典型应用场景
+
+- **营销页/文档站全静态**：`nuxi generate` 一把梭，输出扔对象存储或 GitHub Pages，零服务器成本。
+- **后台管理纯客户端**：`routeRules` 里 `'/admin/**': { ssr: false }`，后台不需要 SEO，省掉服务端渲染开销、规避鉴权态的水合问题。
+- **内容站 ISR**：`/notes/**` 配 `isr: 3600`，一小时内的访问全部命中静态缓存，编辑更新最多延迟一小时生效，流量洪峰打在缓存上而不是数据库上。
+- **老链接迁移**：`'/old-notes/:id': { redirect: { to: '/notes/:id', statusCode: 301 } }`，在服务端层做 301，SEO 权重平滑过渡。
+- **静态资源长缓存**：`/_nuxt/**` 文件指纹化，配 `headers` 输出 `immutable` 缓存头，回访用户几乎零下载。
+
+## 完整代码示例
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    modules: ['@pinia/nuxt'],
+    css: ['~/assets/css/main.css'],
+    runtimeConfig: {
+        apiSecret: 'dev-secret',
+        public: { siteName: 'Nuxt LearnHub' }
+    },
+    routeRules: {
+        // 后台管理：纯客户端渲染，无 SEO 需求
+        '/admin/**': { ssr: false },
+        // 笔记详情：ISR，3600 秒（1 小时）内命中缓存，过期后台再生
+        '/notes/**': { isr: 3600 },
+        // 等价写法：swr: 3600，stale-while-revalidate 语义
+        '/about': { swr: 3600 },
+        // 首页构建期直接预渲染为静态 HTML
+        '/': { prerender: true },
+        // 构建产物带指纹，放心上 immutable 长缓存
+        '/_nuxt/**': {
+            headers: { 'cache-control': 'public, max-age=31536000, immutable' }
+        },
+        // 老路径 301 迁移到新路径
+        '/old-notes': { redirect: { to: '/notes', statusCode: 301 } },
+        // 对外开放接口单独放开跨域
+        '/api/public/**': { cors: true }
+    },
+    nitro: {
+        prerender: {
+            // generate 时爬取页面链接自动发现路由
+            crawlLinks: true,
+            // 动态路由爬不到的参数，显式列出
+            routes: ['/notes/1', '/notes/2', '/sitemap.xml']
+        }
+    },
+    devtools: { enabled: true },
+    compatibilityDate: '2025-07-15'
+})
+```
+
+> 运行方式：`cd app && npm run build && npm run preview` 后逐个访问 `/`、`/about`、`/notes/1`、`/admin` 对比渲染行为；`npm run generate` 后查看 `.output/public/` 下生成的 HTML 与 `_payload.json`。
+
+```json
+// 文件: package.json
+{
+    "scripts": {
+        "dev": "nuxi dev",
+        "build": "nuxi build",
+        "generate": "nuxi generate",
+        "preview": "nuxi preview",
+        "typecheck": "nuxi typecheck",
+        "test": "vitest run"
+    }
+}
+```
+
+> 运行方式：`npm run build` 产出 `.output/`；`npm run generate` 产出全静态 `.output/public/`；`npm run preview` 在本地以生产模式预览构建产物。
+
+```bash
+# 文件: 构建命令速查.sh
+# 默认 Node 服务端预设，产物 .output/（含 server 与 public）
+npm run build
+
+# 全静态预渲染，等价于 NITRO_PRESET=static 的 build
+npm run generate
+
+# 用环境变量切换 Nitro 预设（示例：静态预设）
+NITRO_PRESET=static npx nuxi build
+```
+
+> 运行方式：在 `app/` 目录逐条执行；最后一行演示 `NITRO_PRESET` 的用法，实际部署平台（vercel 等）通常自动探测，无需手动设置。
+
+## 最佳实践
+
+- **先定默认策略，再用 routeRules 做例外**：整站 SSR 打底，只对明确受益的路径开 `prerender`/`isr`/`ssr: false`，规则越克制，缓存行为越容易推理。
+- **能爬就不手写**：预渲染路由优先依赖 `crawlLinks` 自动发现；只有纯动态路由（如 `/notes/[id]`）且页面不被任何入口链接到时，才在 `nitro.prerender.routes` 显式枚举（数据多时可从 CMS/数据库在构建钩子中生成该列表）。
+- **`swr`/`isr` 的 ttl 按内容更新频率取值**：分钟级更新给 60~300 秒，日更内容给 3600~86400 秒；ttl 越短源站压力越大，越长内容越「陈」。
+- **`/_nuxt/**` 一定配 immutable**：构建产物文件名含内容哈希，永不过期也安全，这是最划算的一条缓存规则。
+- **重定向放在 routeRules 而不是页面里**：Nitro 层 301 比组件内 `navigateTo` 快且不闪屏，搜索引擎也更友好。
+- **构建后必跑 `nuxi preview`**：它在本地以真实 `.output/` 起服务，能在上线前暴露「dev 正常、build 异常」的环境差异。
+
+## 常见问题
+
+### Q：`nuxi generate` 之后动态路由 `/notes/3` 是 404，为什么？
+
+A：`crawlLinks` 只能发现被页面链接到的路由。`/notes/3` 若没有任何入口页链接它，就不会被预渲染——把它加进 `nitro.prerender.routes`（或在列表页确保有链接）再重新 generate。
+
+### Q：`swr: 3600` 和 `isr: 3600` 有什么区别？
+
+A：在 Nuxt/Nitro 语义里二者都是「TTL 内返回缓存、过期后后台再生」的缓存规则，`isr` 是面向 Vercel ISR 语义起的别名。普通项目任选其一即可，团队统一用一种写法避免歧义。
+
+### Q：`ssr: false` 的页面打开为什么有一瞬间空白？
+
+A：纯客户端页面首屏 HTML 不含内容，要等 JS 下载执行后才渲染。可在 `app/spa-loading-template.html` 自定义加载占位；面向 SEO 的页面不要用它。
+
+### Q：payload 提取出来的 `_payload.json` 有什么用？
+
+A：预渲染页面的异步数据被抽成独立 JSON，客户端路由切换到该页时直接取这个静态文件，不再请求服务端 API，静态托管下也能获得与 SSR 一致的秒开体验。
+
+## 小结
+
+- `nuxi build` 产出 `.output/`：`server/index.mjs`（Node 入口）+ `public/`（静态资源），自包含可直接运行。
+- `routeRules` 按路径定制渲染：`ssr: false`、`prerender: true`、`swr`/`isr: 秒数`、`headers`、`redirect`、`cors`。
+- `nuxi generate` 全静态预渲染，`crawlLinks` 自动发现路由，`nitro.prerender.routes` 补齐动态路由。
+- payload 提取生成 `_payload.json`，静态站客户端导航免重取数据。
+- `NITRO_PRESET` 决定构建目标（node-server/static/vercel/netlify/cloudflare-pages），多数平台自动探测。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-8" target="_blank" rel="noopener">EP.08 构建部署</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. `.output/` 目录里两个核心部分各是什么，为什么说它是「自包含」的？</b></summary>
+
+`server/index.mjs` 是 Nitro 打包后的服务端入口，`public/` 是静态资源目录。`.output/` 运行不依赖源码与 node_modules，拷到任意有 Node 的环境执行 `node .output/server/index.mjs` 即可启动。
+
+</details>
+
+<details>
+<summary><b>2. 想让笔记详情页「一小时内访问全走静态缓存、过期自动再生」，routeRules 怎么写？</b></summary>
+
+`'/notes/**': { isr: 3600 }`（或 `swr: 3600`，单位秒）。命中期内直接返回缓存副本，过期后后台再生新版本，源站压力与内容新鲜度兼得。
+
+</details>
+
+<details>
+<summary><b>3. `nuxi generate` 后新增的一篇笔记页面 404，最可能的原因与两种解法？</b></summary>
+
+原因：`crawlLinks` 没发现这条动态路由（没有入口链接到它）。解法一：在列表页确保渲染了到该页的 `<NuxtLink>`；解法二：把路径加进 `nitro.prerender.routes` 显式预渲染列表后重新 generate。
+
+</details>

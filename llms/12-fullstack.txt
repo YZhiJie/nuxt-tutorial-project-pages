@@ -1,0 +1,206 @@
+# 12. 全栈实战：存储与鉴权（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/12-fullstack
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 12. 全栈实战：存储与鉴权
+
+> 本章示例：`server/utils/notes-store.ts`、`server/api/auth/`、`app/pages/login.vue`、`app/middleware/auth.ts`
+> 运行方式：`cd app && npm install && npm run dev`，访问 `http://localhost:3000/login`，用 demo / nuxt1234 登录
+
+## 概念解析
+
+Nitro 内置的 unstorage 提供统一的键值存储：`useStorage('data')` 拿到 'data' 挂载点，`getItem` / `setItem` / `removeItem` 即可读写。开发环境默认用 fs 驱动自动落盘到项目 `.data/` 目录，重启不丢；生产需在 nuxt.config.ts 显式配置 `nitro.storage.data` 指定驱动（fs、redis 等任选）。把数据访问封装进 `server/utils/notes-store.ts`，API 处理器只负责参数与响应，存储实现可随时替换。
+
+鉴权采用最朴素的 Cookie 会话：登录接口校验账号后 `setCookie(event, 'session', ...)` 写入 httpOnly Cookie；后续请求浏览器自动携带，`me.get.ts` 用 `getCookie(event, 'session')` 还原用户（未登录返回 `{ user: null }`）；退出用 `deleteCookie(event, 'session', { path: '/' })`。httpOnly 让 XSS 拿不到 Cookie，`sameSite: 'lax'` 缓解 CSRF，`path: '/'` 保证全站携带。演示项目直接把用户名当会话值，生产应换成签名 token 或数据库会话。
+
+对敏感接口可在 `server/middleware/` 做前缀拦截：判断 `event.path.startsWith('/api/admin')`，无 session 则 `throw createError({ statusCode: 401 })`，把鉴权挡在处理器之外，比每个接口各自检查可靠。
+
+最后是密钥管理：nuxt.config.ts 的 `runtimeConfig: { apiSecret: 'dev-secret', public: { siteName: 'Nuxt LearnHub' } }` 中，`apiSecret` 只在服务端可见，`public.*` 才会被打进客户端包。服务端通过 `useRuntimeConfig()` 读取；部署时可用环境变量 `NUXT_API_SECRET`、`NUXT_PUBLIC_SITE_NAME` 覆盖，密钥永远不要写进 public。
+
+## 典型应用场景
+
+- **笔记 CRUD**：useStorage 持久化 + RESTful API + 前端列表页，全栈最小闭环。
+- **Cookie 登录闭环**：login / me / logout 三接口 + 客户端路由守卫。
+- **管理后台保护**：server/middleware 对 /api/admin 前缀统一鉴权。
+- **密钥隔离**：第三方 API Key 放 runtimeConfig 私有字段，接口里代理调用。
+- **多环境配置**：NUXT_* 环境变量在 CI/CD 中覆盖 runtimeConfig。
+
+## 完整代码示例
+
+```ts
+// 文件: server/utils/notes-store.ts
+import type { Note } from '#shared/types/note'
+
+// useStorage('data')：dev 落盘 .data/，生产由 nitro.storage 配置驱动
+const storage = () => useStorage('data')
+
+const seedNotes = (): Note[] => [
+    { id: '1', title: 'useFetch 要点', content: '注意水合与 key', createdAt: '2026-10-01T00:00:00.000Z' },
+    { id: '2', title: 'Pinia 两种风格', content: 'options 与 setup', createdAt: '2026-10-02T00:00:00.000Z' },
+    { id: '3', title: 'Nitro 入门', content: 'server/api 约定', createdAt: '2026-10-03T00:00:00.000Z' }
+]
+
+// 首次访问写入 3 条种子笔记
+export const listNotes = async (): Promise<Note[]> => {
+    let notes = await storage().getItem<Note[]>('notes')
+    if (!notes) {
+        notes = seedNotes()
+        await storage().setItem('notes', notes)
+    }
+    return notes
+}
+
+export const createNote = async (title: string, content = ''): Promise<Note> => {
+    const notes = await listNotes()
+    const note: Note = { id: crypto.randomUUID(), title, content, createdAt: new Date().toISOString() }
+    notes.push(note)
+    await storage().setItem('notes', notes)
+    return note
+}
+
+export const getNote = async (id: string): Promise<Note | undefined> => {
+    const notes = await listNotes()
+    return notes.find((n) => n.id === id)
+}
+
+export const removeNote = async (id: string): Promise<boolean> => {
+    const notes = await listNotes()
+    const next = notes.filter((n) => n.id !== id)
+    if (next.length === notes.length) return false
+    await storage().setItem('notes', next)
+    return true
+}
+```
+> 运行方式：被 server/api/notes/ 下处理器直接调用（server/utils 自动导入）；dev 下数据写入项目 .data/ 目录，重启仍在。
+
+```ts
+// 文件: server/api/auth/login.post.ts
+export default defineEventHandler(async (event) => {
+    const body = await readBody<{ username?: string; password?: string }>(event)
+    // 演示账号写死；生产应查库并比对密码哈希
+    if (body?.username !== 'demo' || body?.password !== 'nuxt1234') {
+        throw createError({ statusCode: 401, statusMessage: '用户名或密码错误' })
+    }
+    // httpOnly 防 XSS 窃取，sameSite lax 缓解 CSRF
+    setCookie(event, 'session', 'demo', {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 7
+    })
+    return { user: { name: 'demo' } }
+})
+```
+> 运行方式：`curl -i -X POST http://localhost:3000/api/auth/login -H 'Content-Type: application/json' -d '{"username":"demo","password":"nuxt1234"}'`，响应头可见 Set-Cookie。
+
+```vue
+<!-- 文件: app/pages/login.vue -->
+<script setup lang="ts">
+const username = ref('')
+const password = ref('')
+const errorMsg = ref('')
+
+const onSubmit = async () => {
+    errorMsg.value = ''
+    try {
+        await $fetch('/api/auth/login', {
+            method: 'POST',
+            body: { username: username.value, password: password.value }
+        })
+        // 登录成功跳转仪表盘，Cookie 由浏览器自动携带
+        await navigateTo('/dashboard')
+    } catch (err: any) {
+        // createError 抛出的 statusMessage 会随错误体返回
+        errorMsg.value = err?.data?.statusMessage ?? '登录失败'
+    }
+}
+</script>
+
+<template>
+    <main>
+        <h1>登录 Nuxt LearnHub</h1>
+        <form @submit.prevent="onSubmit">
+            <input v-model="username" placeholder="用户名 demo" />
+            <input v-model="password" type="password" placeholder="密码 nuxt1234" />
+            <button type="submit">登录</button>
+        </form>
+        <p v-if="errorMsg">{{ errorMsg }}</p>
+    </main>
+</template>
+```
+> 运行方式：访问 `http://localhost:3000/login`，输入 demo / nuxt1234 提交后跳转 /dashboard；密码错误时显示 401 提示。
+
+```ts
+// 文件: app/middleware/auth.ts
+// 具名路由中间件：页面通过 definePageMeta({ middleware: 'auth' }) 启用
+export default defineNuxtRouteMiddleware(async () => {
+    // SSR 时 useFetch 自动把请求 Cookie 转发给服务端接口
+    const { data } = await useFetch('/api/auth/me')
+    if (!data.value?.user) {
+        return navigateTo('/login')
+    }
+})
+```
+> 运行方式：未登录直接访问 `http://localhost:3000/dashboard` 会被重定向到 /login；登录后可正常进入。
+
+## 最佳实践
+
+1. **数据访问封装进 server/utils**——处理器保持瘦，存储实现可随时从 fs 换成 redis。
+2. **会话 Cookie 必加 httpOnly + sameSite**——演示可以简化，安全习惯不能简化。
+3. **登录态以服务端为准**——me.get.ts 是单一事实来源，客户端别自己猜。
+4. **密钥放 runtimeConfig 私有字段**——只有 public.* 会暴露到客户端包。
+5. **失败路径显式处理**——401 给出 statusMessage，客户端展示友好文案。
+6. **中间件守卫敏感前缀**——/api/admin 统一拦截，比每个处理器各自检查可靠。
+
+## 常见问题
+
+### Q：dev 下数据写到哪了？为什么删了 .data 目录数据就重置？
+
+A：`useStorage('data')` 在开发环境默认用 fs 驱动落盘项目 `.data/` 目录，删除即清空。生产请在 nuxt.config.ts 配置 `nitro.storage.data` 指定持久化驱动。
+
+### Q：明明登录成功了，dashboard 还是被弹回 login？
+
+A：检查 login 接口的 Set-Cookie 是否带 `path: '/'`；再确认 middleware/auth.ts 里 `useFetch('/api/auth/me')` 的返回结构是 `{ user }`，判断条件与之匹配。
+
+### Q：apiSecret 会被打包到客户端吗？
+
+A：不会。runtimeConfig 中只有 `public.*` 会注入客户端产物；apiSecret 等私有字段仅服务端 `useRuntimeConfig()` 可读。
+
+### Q：为什么用 httpOnly Cookie 而不是 localStorage 存令牌？
+
+A：httpOnly Cookie 对 JS 不可见，可抵御 XSS 窃取；localStorage 里任何脚本都能读。配合 `sameSite: 'lax'` 还能缓解 CSRF。
+
+## 小结
+
+- `useStorage('data')` 提供持久化 KV，dev 落盘 `.data/`，生产配 `nitro.storage.data`。
+- `server/utils/` 自动导入，notes-store 收敛 CRUD，处理器只做编排。
+- setCookie / getCookie / deleteCookie 实现 Cookie 会话，httpOnly + sameSite lax 是底线。
+- `server/middleware/` 可按 /api/admin 前缀统一鉴权。
+- runtimeConfig 私有字段仅服务端可见，`public.*` 才进客户端包。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-6" target="_blank" rel="noopener">EP.06 服务端全栈</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. useStorage('data') 在开发与生产环境的行为差异是什么？</b></summary>
+
+dev 默认 fs 驱动自动落盘 .data/ 目录；生产无默认持久化，需在 nuxt.config.ts 的 nitro.storage.data 配置驱动（fs/redis 等），否则重启即丢。
+
+</details>
+
+<details>
+<summary><b>2. 为什么登录接口要设置 httpOnly: true 与 sameSite: 'lax'？</b></summary>
+
+httpOnly 使 Cookie 对客户端 JS 不可见，防 XSS 窃取会话；sameSite lax 限制跨站请求携带 Cookie，缓解 CSRF。
+
+</details>
+
+<details>
+<summary><b>3. runtimeConfig 中 apiSecret 与 public.siteName 的可见性区别？</b></summary>
+
+apiSecret 只在服务端通过 useRuntimeConfig() 可读，不进入客户端产物；public.* 会序列化进客户端包、浏览器可见，因此密钥绝不放 public。
+
+</details>

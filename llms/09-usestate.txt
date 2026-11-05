@@ -1,0 +1,161 @@
+# 09. useState 与 SSR 状态（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/09-usestate
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 09. useState 与 SSR 状态
+
+> 本章示例：`app/composables/useCounter.ts`、`app/pages/playground.vue`、`app/pages/dashboard.vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/playground`
+
+## 概念解析
+
+在纯客户端 SPA 里，模块顶层写 `const count = ref(0)` 再多处导入，是最常见的「全局状态」写法。但在 SSR 场景下它是一颗定时炸弹：Node.js 服务端上模块只加载一次，这个 ref 是进程级单例，会被所有并发请求共享。A 用户把 count 改成 10，B 用户首屏 HTML 里就渲染出 10——既串数据，也可能泄露隐私。
+
+`useState` 是 Nuxt 给出的 SSR 安全共享状态方案。调用 `useState('key', () => 初始值)` 时，状态会按 key 存进当前请求独立的 Nuxt payload 中：服务端渲染时写入初值并随 HTML 序列化下发，客户端水合时按相同 key 还原。每个请求都有自己的 payload，请求之间天然隔离；两端 key 一致，水合也不会失配。
+
+`useState` 与 `ref` 的区别在于作用域：`ref` 是组件实例内的局部状态，`useState` 是一次会话内跨组件、跨页面共享的全局状态。因为值要被序列化进 payload，useState 里只能放可 JSON 序列化的数据（字符串、数字、布尔、数组、纯对象）；函数、Date 实例、Map/Set、类实例会在水合后失真，应避免。大对象若不需要深层响应式，可用 `useState('k', () => shallowRef(bigData))` 减少响应式代理带来的开销。
+
+另外两个配套 API：`clearNuxtState()` 一键清空所有 useState（退出登录时防止残留上一个用户的数据）；`useCookie('name')` 返回一个与 Cookie 双向同步的 ref，SSR 时服务端也能读到，适合存主题偏好、会话标记等——但注意 `httpOnly: true` 的 Cookie 客户端 JS 读不到，客户端的 ref 也就无法同步，只能由服务端改写。
+
+## 典型应用场景
+
+- **跨组件 UI 状态**：侧边栏折叠、全局 loading、多步骤表单的当前步骤。
+- **跨页面数据缓存**：列表筛选条件、已加载的数据，切换路由不丢失。
+- **登录用户对象**：配合 `useFetch('/api/auth/me')` 拿到用户后存入 useState，全站任意组件可读。
+- **偏好与标记**：`useCookie` 持久化主题、语言等偏好，SSR 渲染时即可生效。
+- **退出登录清场**：`clearNuxtState()` 清空全部状态，防止下一个用户看到残留。
+
+## 完整代码示例
+
+```ts
+// 文件: app/composables/useCounter.ts
+export const useCounter = () => {
+    // 以 key 'counter' 注册共享状态，SSR 下各请求互相隔离
+    const count = useState('counter', () => 0)
+
+    const inc = () => {
+        count.value++
+    }
+    const dec = () => {
+        count.value--
+    }
+    const reset = () => {
+        count.value = 0
+    }
+
+    return { count, inc, dec, reset }
+}
+```
+> 运行方式：composables/ 下文件自动导入，任意组件直接调用 useCounter()；打开 `http://localhost:3000/playground` 查看效果。
+
+```vue
+<!-- 文件: app/pages/playground.vue -->
+<script setup lang="ts">
+// 组合式函数自动导入，无需 import
+const { count, inc, dec, reset } = useCounter()
+// 再次调用拿到的是同一份状态（key 相同）
+const again = useCounter()
+</script>
+
+<template>
+    <main>
+        <h1>useState 共享状态演示</h1>
+        <p>计数：{{ count }} / 二次读取：{{ again.count }}</p>
+        <button @click="inc">+1</button>
+        <button @click="dec">-1</button>
+        <button @click="reset">清零</button>
+        <!-- 切换到其他页面再返回，数值仍保留在本次会话中 -->
+    </main>
+</template>
+```
+> 运行方式：浏览器访问 `http://localhost:3000/playground`，点击按钮后切换路由再返回，数值保持不变。
+
+```vue
+<!-- 文件: app/pages/dashboard.vue -->
+<script setup lang="ts">
+definePageMeta({ middleware: 'auth' })
+
+const { data } = await useFetch('/api/auth/me')
+// useCookie：与 Cookie 同步的 ref，SSR 可读写，适合保存偏好
+const theme = useCookie<'light' | 'dark'>('theme', { default: () => 'light' })
+
+const logout = async () => {
+    await $fetch('/api/auth/logout', { method: 'POST' })
+    // 清空所有 useState，避免残留当前用户的数据
+    clearNuxtState()
+    await navigateTo('/login')
+}
+</script>
+
+<template>
+    <main>
+        <h1>你好，{{ data?.user?.name }}</h1>
+        <button @click="theme = theme === 'light' ? 'dark' : 'light'">
+            切换主题（当前 {{ theme }}）
+        </button>
+        <button @click="logout">退出登录</button>
+    </main>
+</template>
+```
+> 运行方式：先访问 `http://localhost:3000/login` 用 demo / nuxt1234 登录，再进入 /dashboard 体验切换主题与退出登录。
+
+## 最佳实践
+
+1. **全局状态默认用 useState，不用模块顶层 ref**——后者在 SSR 下是跨请求单例，必然串数据。
+2. **key 要语义化且全局唯一**，如 `'auth-user'`、`'notes-list'`，避免不同模块撞 key 互相覆盖。
+3. **只存可序列化数据**——Date 先转 ISO 字符串、Map 转数组，否则水合后类型丢失。
+4. **大对象用 shallowRef 包裹**——避免深度响应式代理拖慢首屏渲染。
+5. **退出登录记得 clearNuxtState()**——配合删除会话 Cookie，才算真正清场。
+6. **httpOnly Cookie 别指望客户端读**——需要客户端感知登录态时，以接口返回为准。
+
+## 常见问题
+
+### Q：为什么在模块顶层 export const count = ref(0)，开发时好像也正常？
+
+A：dev 模式下通常只有你一个用户、且 nuxi 频繁重启，问题被掩盖。生产环境多请求并发、进程常驻时必然串状态，务必改用 useState。
+
+### Q：useState 和 Pinia 选哪个？
+
+A：轻量共享（几个值、无需 action/getter 组织）用 useState；复杂业务状态（多实体、派生计算、DevTools 调试）用 Pinia，二者可共存，详见第 10 章。
+
+### Q：useState 的初始值函数会执行几次？
+
+A：服务端渲染时执行一次并写入 payload，客户端水合时若 payload 已有该 key 则直接复用，不再执行 init；硬刷新（重新 SSR）才会再次执行。
+
+### Q：useCookie 改了值，请求头里却没带新 Cookie？
+
+A：检查是否设置了 `httpOnly: true`——客户端 JS 无法读写 httpOnly Cookie，ref 也就不会同步；去掉该选项，或改为由服务端接口设置。
+
+## 小结
+
+- 模块顶层 ref 在 SSR 下是跨请求单例，会造成用户间串状态。
+- `useState('key', init)` 提供按请求隔离、随 payload 序列化水合的共享状态。
+- useState 只能存放可序列化数据；大对象用 shallowRef 包裹降开销。
+- `clearNuxtState()` 清空全部状态；`useCookie` 提供 SSR 友好的 Cookie ref，但 httpOnly Cookie 客户端不可读。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-5" target="_blank" rel="noopener">EP.05 状态管理</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 为什么 SSR 下不能用模块顶层 ref 做全局状态？</b></summary>
+
+服务端模块只加载一次，顶层 ref 是进程级单例，会被所有并发请求共享，导致用户之间串数据；useState 按请求隔离并随 payload 水合，才是正确姿势。
+
+</details>
+
+<details>
+<summary><b>2. useState 与 ref 的核心区别是什么？</b></summary>
+
+ref 是组件实例内的局部状态；useState 以 key 注册、跨组件跨页面共享，且值会序列化进 payload 在 SSR 与客户端之间同步，因此只能放可序列化数据。
+
+</details>
+
+<details>
+<summary><b>3. 退出登录时为什么要调用 clearNuxtState()？</b></summary>
+
+useState 中的用户数据不会在删除 Cookie 后自动消失，残留在客户端会继续展示；clearNuxtState() 清空所有 key，保证下一个用户从干净状态开始。
+
+</details>

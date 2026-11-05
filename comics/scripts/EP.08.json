@@ -1,0 +1,56 @@
+{
+  "ep": 8,
+  "slug": "EP.08-deployment",
+  "title": "构建与部署",
+  "part": "docs/08-deployment",
+  "panels": [
+    {
+      "title": "困境：全站 SSR",
+      "speaker": "jun",
+      "bubble": ["博客全走 SSR，", "流量一高峰就告警，", "静态页也在烧服务器！"],
+      "code": [
+        "// 所有页面动态渲染",
+        { "t": "// CPU 随流量线性涨", "c": "#fbbf24" },
+        { "t": "// 文档页十年不变也 SSR", "c": "#f472b6" },
+        { "t": "// 账单跟着流量起飞", "c": "#f472b6" }
+      ],
+      "note": ["不是所有页面都配得上 SSR。", "渲染模式应按页面粒度选择。"]
+    },
+    {
+      "title": "揭秘：混合渲染",
+      "speaker": "shu",
+      "bubble": ["routeRules 按路径定模式：", "首页预渲染，后台走 SPA，", "博客 ISR 定时再生成。"],
+      "code": [
+        "routeRules: {",
+        "  '/': { prerender: true },",
+        "  '/admin/**': { ssr: false },",
+        "  '/blog/**': { isr: 3600 }",
+        "}"
+      ],
+      "note": ["混合渲染是 Nuxt 的杀手锏。", "ISR = 静态缓存加过期重建。"]
+    },
+    {
+      "title": "实证：三路径部署",
+      "speaker": "jiang",
+      "bubble": ["build 出 Node 产物，", "generate 出纯静态，", "preset 一键切平台？"],
+      "code": [
+        "nuxi build       # Node 服务",
+        "nuxi generate    # 纯静态",
+        "NITRO_PRESET=vercel nuxi build",
+        { "t": "// .output 即全部产物", "c": "#34d399" }
+      ],
+      "note": ["NUXT_PUBLIC_ 前缀暴露给客户端。", "私密环境变量只留在服务端。"]
+    },
+    {
+      "title": "结案：按页定模式",
+      "speaker": "shu",
+      "bubble": ["渲染策略按页定制，", "产物跟着 preset 走，", "密钥留在服务端。"],
+      "pitfalls": [
+        "generate 后服务端 API 失效",
+        "routeRules 通配优先级细查",
+        "运行时变量以 NUXT_ 开头"
+      ],
+      "summary": "混合渲染省钱，preset 定去处。"
+    }
+  ]
+}

@@ -1,0 +1,182 @@
+# 18. 性能优化与 Core Web Vitals（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/18-performance
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 18. 性能优化与 Core Web Vitals
+
+> 本章示例：`app/nuxt.config.ts`、`app/plugins/web-vitals.client.ts`、`app/components/NoteCard.vue`
+> 运行方式：`cd app && npm install && npm run build && npm run preview`，浏览器访问 `http://localhost:3000/` 并用 Lighthouse 测量
+
+## 概念解析
+
+**Core Web Vitals 是 Google 定义的用户体验硬指标**，优化的所有动作都应能映射回这三个数：LCP（Largest Contentful Paint，最大内容绘制，首屏最大元素出现的时间，目标 ≤ 2.5s）主要受服务端响应、字体与图片影响；INP（Interaction to Next Paint，交互到下次绘制，目标 ≤ 200ms）反映主线程被长任务与 hydration 阻塞的程度；CLS（Cumulative Layout Shift，累积布局偏移，目标 ≤ 0.1）来自无尺寸的媒体、异步插入的内容与字体换行。测量三板斧：本地用 DevTools Performance 面板与 Lighthouse，真实用户数据用 `web-vitals` 库上报，线上体检用 PageSpeed Insights——**先测量再优化，没有数据不谈性能**。
+
+**`routeRules` 是 Nuxt 性能优化的第一杠杆**，它的缓存矩阵值得背下来：`prerender: true` 构建期产出 HTML（TTFB 趋近于零）；`isr`/`swr: 秒数` 缓存渲染结果、过期再生（兼顾新鲜与扛量）；`cache: { maxAge }` 给 API 路由加内存缓存；`headers: { 'cache-control': ... }` 控制浏览器与 CDN 缓存行为。一条经验法则：**页面级缓存用 `isr`/`swr`，API 级缓存用 `cache`，静态资源用 `headers` + 指纹文件，三者分层叠加**。
+
+**字体与图片是 LCP/CLS 的两个最大变量**。字体方面，`@nuxtjs/google-fonts` 把 Google Fonts 下载为本地资源并自动加 `preload`，`@nuxtjs/fontaine` 通过字体度量回退（font metric override）消除自定义字体加载时的布局位移，`font-display: swap` 保证文本先用回退字体渲染。图片方面，`@nuxt/image` 内置 IPX 图像处理器，`<NuxtImg>` 自动生成响应式 `srcset`、按需压缩格式（webp/avif）、配合 `loading="lazy"` 与显式 `width`/`height` 同时改善 LCP 与 CLS。
+
+**JS 体积决定 INP 与 hydration 成本**。Nuxt 提供的武器按从轻到重排序：`Lazy` 前缀组件（`<LazyNoteCard>`）推迟到进入视口才加载代码；`dynamic import`（`defineAsyncComponent`）手动控制分割点；`preloadComponents`/`prefetchComponents` 在空闲时预取即将用到的组件；第三方脚本用 `useScript`（`@nuxt/scripts`）或 `afterInteractive` 策略延后。最后用 `nuxi analyze` 生成 bundle 可视化报告，让每一次优化都有据可依。
+
+## 典型应用场景
+
+- **电商详情页 LCP 攻坚**：首图 `<NuxtImg preload>` + 字体本地化 + 描述区 `isr: 600`，LCP 从 4s 压进 2s。
+- **内容站 CLS 清零**：所有 `<img>` 换 `<NuxtImg>` 带宽高 + fontaine 度量回退，布局位移归零。
+- **仪表盘 INP 优化**：重图表组件 `Lazy` 前缀 + 数据请求移出关键路径，交互不再卡顿。
+- **落地页 bundle 瘦身**：`nuxi analyze` 定位意外引入的大依赖（如全量 lodash），改按需引入。
+- **第三方脚本治理**：统计、客服 SDK 统一 `useScript` 延迟加载，不阻塞 hydration。
+- **组件级预取**：用户悬停「下一页」时 `prefetchComponents('NotesList')`，翻页瞬时完成。
+
+## 完整代码示例
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    modules: [
+        '@nuxt/image',
+        '@nuxtjs/google-fonts',
+        '@nuxtjs/fontaine'
+    ],
+    image: {
+        // IPX 默认处理本地与远程图片，限制允许的远程域名
+        domains: ['cdn.example.com'],
+        // 统一质量与格式，自动生成 srcset
+        quality: 80,
+        format: ['webp', 'avif']
+    },
+    googleFonts: {
+        families: { Inter: [400, 600, 700] },
+        // 下载为本地资源，摆脱 fonts.googleapis.com 的第三方往返
+        download: true,
+        display: 'swap'
+    },
+    routeRules: {
+        '/': { isr: 300 },
+        // 构建产物带指纹，上 immutable 长缓存
+        '/_nuxt/**': {
+            headers: { 'cache-control': 'public, max-age=31536000, immutable' }
+        },
+        // API 级缓存与页面级缓存分层
+        '/api/notes': { cache: { maxAge: 60 } }
+    },
+    compatibilityDate: '2025-07-15'
+})
+```
+
+> 运行方式：`cd app && npm install && npm run build && npm run preview`，访问 `http://localhost:3000/` 后用 Lighthouse 跑性能分，对比优化前后的 LCP/CLS。
+
+```vue
+<!-- 文件: app/components/NoteCard.vue -->
+<script setup lang="ts">
+    import type { Note } from '#shared/types/note'
+
+    defineProps<{ note: Note }>()
+</script>
+
+<template>
+    <article class="note-card">
+        <!-- width/height 显式给出：浏览器预留空间，CLS 为零 -->
+        <!-- sizes 告诉浏览器不同视口下选哪档 srcset -->
+        <NuxtImg
+            :src="note.cover ?? '/placeholder.png'"
+            :alt="note.title"
+            width="640"
+            height="360"
+            sizes="sm:100vw md:50vw lg:640px"
+            loading="lazy"
+        />
+        <h3>{{ note.title }}</h3>
+    </article>
+</template>
+```
+
+> 运行方式：任意列表页引用 `<NoteCard>` 后，DevTools Network 面板按 Img 过滤，可看到 IPX 生成的 `/_ipx/...` 响应式图片；Performance 面板确认无布局位移记录。
+
+```ts
+// 文件: app/plugins/web-vitals.client.ts
+import { onLCP, onINP, onCLS } from 'web-vitals'
+
+export default defineNuxtPlugin(() => {
+    // 真实用户监控：上报到自建接口或分析平台
+    const report = (metric: { name: string; value: number }) => {
+        // navigator.sendBeacon 不阻塞页面卸载
+        navigator.sendBeacon('/api/vitals', JSON.stringify(metric))
+    }
+    onLCP(report)
+    onINP(report)
+    onCLS(report)
+})
+```
+
+> 运行方式：安装 `web-vitals` 后 `npm run dev`，访问 `http://localhost:3000/` 并与页面交互，在 Network 面板能看到 `/api/vitals` 的 beacon 上报（需自行添加对应 server 路由打印数据）。
+
+```bash
+# 文件: 性能分析命令速查.sh
+# 生成 bundle 可视化报告（rollup-plugin-visualizer 集成）
+npx nuxi analyze
+
+# 构建后用 preview 以生产模式本地验证
+npm run build && npm run preview
+
+# PageSpeed Insights 线上体检（部署后执行）
+# https://pagespeed.web.dev/ 输入线上 URL 即可
+```
+
+> 运行方式：`npx nuxi analyze` 会在 `.output/` 生成报告并自动打开浏览器，按 chunk 体积排序定位最大依赖。
+
+## 最佳实践
+
+1. **先测后优，指标先行**：每次优化前记录 LCP/INP/CLS 基线，优化后对比；凭直觉做的性能改动有一半是无效甚至负优化。
+2. **缓存分层而非单点**：页面 `isr`/`swr`、API `cache`、静态资源 `immutable` 三层叠加，任何一层命中都能挡掉下游压力。
+3. **图片永远是 `<NuxtImg>` + 显式宽高**：这一步同时解决 LCP（压缩、srcset）与 CLS（预留空间），是投入产出比最高的单项优化。
+4. **`Lazy` 前缀用在「首屏以下」**：视口内组件保持同步加载避免闪烁，视口外的重组件（图表、富文本、地图）一律 `Lazy`。
+5. **第三方脚本全部延后**：统计、客服、广告 SDK 用 `useScript` 或 `requestIdleCallback` 加载，绝不让它们在 hydration 关键路径上。
+6. **每月跑一次 `nuxi analyze`**：依赖会随需求悄悄膨胀，把 bundle 审查纳入迭代例行事项，超 200KB（gzip）的 chunk 必须能说清来历。
+
+## 常见问题
+
+### Q：本地 Lighthouse 分数很高，线上真实用户数据却很差？
+
+A：本地是高性能设备 + 快速网络的「实验室数据」，PageSpeed Insights 的 CrUX 数据才是真实用户分布。重点优化 P75 分位：用 `web-vitals` 上报按设备/网络分桶，先救最差的那批用户。
+
+### Q：`<NuxtImg>` 在 `nuxi generate` 的纯静态站上能用吗？
+
+A：可以。IPX 在构建期处理图片并输出到 `.output/public`；也可用 `provider` 换成 Cloudinary、ImageKit 等托管服务，把图像处理完全外移。
+
+### Q：`isr` 和 `cache: { maxAge }` 看起来都是缓存，什么时候用哪个？
+
+A：`isr`/`swr` 缓存的是**渲染出的 HTML**（页面级），`cache` 缓存的是 **Nitro 路由的响应**（API 级）。页面用前者，接口用后者；一个 SSR 页面背后常常两者同时生效。
+
+### Q：`prefetchComponents` 和 `<NuxtLink>` 的自动 prefetch 有什么区别？
+
+A：`<NuxtLink>` 默认预取的是**目标页面的代码与 payload**（导航级），`prefetchComponents`/`preloadComponents` 针对**单个组件**（组件级）。页面内「点击才出现的重弹窗」这类场景用后者，跨页导航交给前者即可。
+
+## 小结
+
+- Core Web Vitals：LCP ≤ 2.5s、INP ≤ 200ms、CLS ≤ 0.1，先测量再优化。
+- `routeRules` 缓存矩阵：页面 `isr`/`swr`、API `cache`、静态资源 `headers` + 指纹。
+- 字体用 `@nuxtjs/google-fonts` + fontaine 本地化并消除位移；图片用 `@nuxt/image` 响应式 + 显式宽高。
+- JS 治理：`Lazy` 前缀、`useScript` 延后三方脚本、`nuxi analyze` 定期审查 bundle。
+- 预取双轨：`<NuxtLink>` 预取导航，`prefetchComponents` 预取组件。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】LCP、INP、CLS 分别度量什么，各自的目标阈值是多少？</b></summary>
+
+LCP 度量最大内容元素的绘制时间（加载速度），目标 ≤ 2.5s；INP 度量交互到下次绘制的延迟（响应性），目标 ≤ 200ms；CLS 度量累积布局偏移（视觉稳定性），目标 ≤ 0.1。三者均以真实用户数据的 P75 分位判定达标。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】一个 SSR 列表页图片导致的 CLS 高达 0.3，给出两条并行的修复措施。</b></summary>
+
+措施一：所有 `<img>` 换 `<NuxtImg>` 并显式声明 `width`/`height`（或 CSS `aspect-ratio`），让浏览器在图片下载前预留正确空间；措施二：若是自定义字体换行引发的二次位移，接入 `@nuxtjs/fontaine` 用度量匹配的回退字体占位。两者分别消除媒体与字体两类位移源。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】为什么 `routeRules` 里给 `/_nuxt/**` 配 `max-age=31536000, immutable` 是绝对安全的？</b></summary>
+
+Nuxt 构建产物的文件名包含内容哈希（如 `entry.a1b2c3d4.js`），内容一变文件名就变，旧文件永不被引用。因此可以告诉浏览器与 CDN「这份资源永远不变、不用回源验证」，回访用户静态资源零下载；若文件名不含哈希，immutable 会导致用户长期拿到过期代码，反而不安全。
+
+</details>

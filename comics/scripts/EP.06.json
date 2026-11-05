@@ -1,0 +1,56 @@
+{
+  "ep": 6,
+  "slug": "EP.06-server-fullstack",
+  "title": "服务端全栈",
+  "part": "docs/06-server",
+  "panels": [
+    {
+      "title": "困境：两套仓库",
+      "speaker": "jun",
+      "bubble": ["就查个数据库，", "还得再开个 Express 项目？", "部署两套太折腾了！"],
+      "code": [
+        "// 前端一个仓 后端一个仓",
+        "nuxt-app/  +  api-server/",
+        { "t": "// 跨域配置配到头秃", "c": "#fbbf24" },
+        { "t": "// 类型两边各写一遍", "c": "#f472b6" }
+      ],
+      "note": ["小项目养两个仓库成本高。", "联调沟通吃掉开发时间。"]
+    },
+    {
+      "title": "揭秘：Nitro 接口",
+      "speaker": "shu",
+      "bubble": ["server/api/ 下建文件，", "Nitro 直接给你接口，", "前后端同仓同部署。"],
+      "code": [
+        "// server/api/hello.get.ts",
+        "export default",
+        "  defineEventHandler(() => ({",
+        "    msg: 'hi from Nitro'",
+        "  }))"
+      ],
+      "note": ["文件名 .get/.post 限定方法。", "前端用 $fetch('/api/hello') 调。"]
+    },
+    {
+      "title": "实证：全栈闭环",
+      "speaker": "jiang",
+      "bubble": ["登录态写进 Cookie，", "数据丢进 useStorage，", "一个项目全搞定？"],
+      "code": [
+        "const s = useStorage('data')",
+        "await s.setItem('user:1', obj)",
+        "setCookie(event, 'token', jwt,",
+        "  { httpOnly: true })"
+      ],
+      "note": ["useStorage 默认落 .data 目录。", "httpOnly Cookie 防 XSS 偷令牌。"]
+    },
+    {
+      "title": "结案：一仓全栈",
+      "speaker": "shu",
+      "bubble": ["接口、存储、鉴权，", "Nitro 一手包办，", "小项目一个仓库就够。"],
+      "pitfalls": [
+        "server/ 代码不进浏览器包",
+        "密钥只留服务端 别暴露前端",
+        "生产存储换 redis 等驱动"
+      ],
+      "summary": "Nitro 让 Nuxt 长出后端。"
+    }
+  ]
+}

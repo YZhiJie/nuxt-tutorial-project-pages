@@ -1,0 +1,173 @@
+# 14. TypeScript 与测试（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/14-typescript-testing
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 14. TypeScript 与测试
+
+> 本章示例：`tsconfig.json`、`shared/types/note.ts`、`vitest.config.ts`、`tests/format.test.ts`、`app/pages/notes/index.vue`
+> 运行方式：`cd app && npm install && npm run typecheck && npm test`；开发期类型生成用 `npx nuxi prepare`
+
+## 概念解析
+
+**Nuxt 4 的类型是「生成出来的」**。你在编辑器里看到 `useFetch`、`defineNuxtConfig`、自动导入的组件类型全都带补全，并不是装了什么类型包，而是 Nuxt 在 `.nuxt/` 目录下生成了一整套类型声明。根目录的 `tsconfig.json` 只有一行 `extends: './.nuxt/tsconfig.json'`，真正的配置由 `.nuxt/` 下拆分的多个 tsconfig 组成——`tsconfig.app.json`（应用代码）、`tsconfig.server.json`（Nitro 服务端）、`tsconfig.shared.json`（共享代码）、`tsconfig.node.json`（nuxt.config 等 Node 侧文件），通过 TypeScript 的「项目引用（Project References）」串起来，让每一侧都有精确隔离的类型环境。
+
+**两个命令管整个类型工作流**：`nuxi prepare` 生成/更新 `.nuxt/`（克隆模板或改了配置后跑一次，IDE 即刻满血）；`nuxi typecheck` 底层调用 `vue-tsc` 做全量类型检查，输出非零退出码，可直接挂进 CI。数据获取层面，`useFetch<Note[]>` 用泛型标注返回类型；更妙的是请求本站 `server/api` 路由时，Nuxt 能从 `defineEventHandler` 的返回值自动推断出响应类型，泛型经常可以省掉。
+
+**测试建议分层**：最底层是纯函数（`app/utils/`、`shared/` 里的工具），用 vitest 直接跑，毫秒级、零环境依赖；往上是需要 Nuxt 运行时（自动导入、插件、组件渲染）的测试，用官方 `@nuxt/test-utils` 提供的 Nuxt 环境；最顶层是端到端（`@nuxt/test-utils` 的 e2e setup 起真实服务跑浏览器断言）。投入产出比最高的永远是纯函数单测，应作为测试主力的第一层。
+
+## 典型应用场景
+
+- **CI 卡点**：流水线里 `nuxi typecheck` + `vitest run`，类型错误或测试失败直接拦下合并。
+- **跨端共享类型**：`shared/types/note.ts` 定义 `Note` 接口，服务端 handler 与前端页面都 `import type { Note } from '#shared/types/note'`，改字段时两侧同时报错。
+- **接口类型自动对齐**：前端 `useFetch('/api/notes')` 的 `data` 类型随服务端 handler 返回值变化，后端改结构前端立刻报类型错。
+- **工具函数回归防护**：`formatDate` 这类格式化函数边界多（无效日期、时区、空值），用参数化用例钉死行为。
+- **组件/Nuxt 环境冒烟**：用 `@nuxt/test-utils` 验证页面在真实 Nuxt 上下文中能渲染、关键文案出现。
+
+## 完整代码示例
+
+```json
+// 文件: tsconfig.json
+{
+    "extends": "./.nuxt/tsconfig.json"
+}
+```
+
+> 运行方式：先执行 `cd app && npx nuxi prepare` 生成 `.nuxt/` 类型目录（该 tsconfig 位于项目根的 app 工程内），再开 IDE 或运行 `npm run typecheck`。
+
+```ts
+// 文件: shared/types/note.ts
+// 共享类型：前端组件与服务端 handler 共同引用 (#shared 别名指向 shared/ 目录)
+export interface Note {
+    id: number
+    title: string
+    summary: string
+    content: string
+    tags: string[]
+    createdAt: string
+    updatedAt: string
+}
+```
+
+> 运行方式：在任意页面写 `import type { Note } from '#shared/types/note'`，然后 `useFetch<Note[]>('/api/notes')` 即可获得完整的类型推断与补全。
+
+```ts
+// 文件: vitest.config.ts
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+    test: {
+        // 纯函数单测用 node 环境即可，跑得快、无 DOM 开销
+        environment: 'node',
+        include: ['tests/**/*.test.ts']
+    }
+})
+```
+
+> 运行方式：`cd app && npm test`（即 `vitest run`），一次性跑完 `tests/` 下全部用例；开发期可用 `npx vitest` 进入 watch 模式。
+
+```ts
+// 文件: tests/format.test.ts
+import { describe, expect, it } from 'vitest'
+// 被测对象：app/utils/format.ts 中的纯函数（Nuxt 会自动导入，测试里需显式 import）
+import { formatDate } from '../app/utils/format'
+
+describe('formatDate', () => {
+    it('将 ISO 日期格式化为 YYYY-MM-DD', () => {
+        expect(formatDate('2026-10-18T08:00:00.000Z')).toBe('2026-10-18')
+    })
+
+    it('空字符串返回占位符', () => {
+        expect(formatDate('')).toBe('-')
+    })
+
+    it('非法日期不抛异常，返回占位符', () => {
+        expect(formatDate('not-a-date')).toBe('-')
+    })
+})
+```
+
+> 运行方式：`cd app && npm test`；三个用例应全部通过，改动 `formatDate` 行为时用例会立刻变红。
+
+```vue
+<!-- 文件: app/pages/notes/index.vue -->
+<script setup lang="ts">
+import type { Note } from '#shared/types/note'
+
+// 泛型标注：data 被推断为 Ref<Note[] | null>
+// 若服务端 handler 返回值有类型，useFetch('/api/notes') 可自动推断，泛型可省略
+const { data: notes, status } = await useFetch<Note[]>('/api/notes')
+</script>
+
+<template>
+    <section>
+        <p v-if="status === 'pending'">加载中…</p>
+        <ul v-else>
+            <!-- notes 内的每一项都有 Note 的完整类型提示 -->
+            <li v-for="note in notes" :key="note.id">{{ note.title }}</li>
+        </ul>
+    </section>
+</template>
+```
+
+> 运行方式：`cd app && npm run typecheck`；把模板里的 `note.title` 改成 `note.titel` 会立即报类型错误，验证类型链路生效。
+
+## 最佳实践
+
+- **克隆后第一件事跑 `nuxi prepare`**：`.nuxt/` 不入库，没有它 IDE 会把所有自动导入标红；`npm install` 的 postinstall 钩子通常会自动执行，但手动跑一次最稳。
+- **CI 必挂 `nuxi typecheck`**：类型检查不占本地开发节奏（IDE 已实时提示），但必须成为合并前的硬门槛，`package.json` 中配好 `"typecheck": "nuxi typecheck"`。
+- **跨端类型只放 `shared/`**：`#shared` 别名同时被 app 与 server 两侧识别，避免前端 import 服务端文件这类单向泄漏。
+- **测试金字塔：纯函数单测优先**：`app/utils/`、`shared/` 的纯逻辑用 vitest 全覆盖；需要 Nuxt 环境的（自动导入、挂载组件）再上 `@nuxt/test-utils/module`；跨页关键流程才写 e2e（`@nuxt/test-utils` 的 `setup({ server: true, browser: true })`）。
+- **善用自动推断，少写重复泛型**：请求本站 API 时让 `useFetch` 从 handler 返回值推断类型；只有请求外部接口时才显式写泛型，避免前后端类型写两遍导致漂移。
+
+## 常见问题
+
+### Q：IDE 里 `useFetch` 等全部报「找不到名称」，是哪里坏了？
+
+A：十有八九是 `.nuxt/` 类型没生成或过期。执行 `npx nuxi prepare` 重新生成，然后重启编辑器的 TS 服务（VS Code：`Restart TS Server`）即可恢复。
+
+### Q：`nuxi typecheck` 报缺少依赖怎么办？
+
+A：`typecheck` 底层是 `vue-tsc`，需要项目里安装 `typescript` 与 `vue-tsc` 两个开发依赖：`npm i -D typescript vue-tsc`，之后再跑 `npm run typecheck`。
+
+### Q：测试里为什么不能直接用自动导入的 `formatDate`？
+
+A：自动导入是 Nuxt 构建期做的转换，纯 vitest（node 环境）不经过这套管线，所以测试文件要显式 `import { formatDate } from '../app/utils/format'`；想要自动导入生效需接入 `@nuxt/test-utils` 的 Nuxt 环境。
+
+### Q：`@nuxt/test-utils` 具体怎么接入？
+
+A：vitest 配置改用 `@nuxt/test-utils/config` 的 `defineVitestConfig`，并在 `nuxt.config.ts` 的 `modules` 加 `@nuxt/test-utils/module`，即可用 `mountSuspended` 等 API 在真实 Nuxt 环境测组件；e2e 场景用其 `setup()` 起真实服务配合浏览器断言。入门阶段建议先把纯函数单测做扎实。
+
+## 小结
+
+- Nuxt 4 类型体系由 `.nuxt/` 生成，根 `tsconfig.json` 仅 `extends './.nuxt/tsconfig.json'`，内部按 app/server/shared/node 拆分为项目引用。
+- `nuxi prepare` 生成类型、`nuxi typecheck`（vue-tsc）做全量检查并接入 CI。
+- 自动导入的类型来自 `.nuxt/types/`，`useFetch<Note[]>` 泛型与 handler 返回值自动推断双管齐下。
+- 前后端共享类型放 `shared/`，用 `#shared/types/note` 别名引用。
+- 测试分层：vitest 纯函数单测打底，`@nuxt/test-utils` 覆盖 Nuxt 环境与 e2e。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-7" target="_blank" rel="noopener">EP.07 工程化</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 为什么根 `tsconfig.json` 只有一行 `extends` 还能让编辑器认识所有自动导入？</b></summary>
+
+因为它继承的是 `.nuxt/tsconfig.json`。`nuxi prepare` 会在 `.nuxt/` 下生成包含全部自动导入声明的类型文件与拆分后的项目引用配置，编辑器顺着 extends 链就能解析到所有类型。
+
+</details>
+
+<details>
+<summary><b>2. 请求本站 `server/api/notes` 时，为什么 `useFetch` 的泛型经常可以省略？</b></summary>
+
+Nuxt 会为内部 API 路由生成类型映射，从 `defineEventHandler` 的返回值推断响应类型并挂到 `useFetch` 的推断链路上；handler 改了返回结构，调用处类型随之更新。
+
+</details>
+
+<details>
+<summary><b>3. 为什么建议把 `formatDate` 这类函数的测试放在纯 vitest 而不是 `@nuxt/test-utils` 环境？</b></summary>
+
+纯函数不依赖 Nuxt 运行时，node 环境的 vitest 启动快、反馈即时、无环境噪音；`@nuxt/test-utils` 要启动 Nuxt 环境，成本高，应留给真正需要自动导入、组件挂载或路由的测试。
+
+</details>

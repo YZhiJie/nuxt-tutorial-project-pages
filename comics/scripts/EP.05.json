@@ -1,0 +1,57 @@
+{
+  "ep": 5,
+  "slug": "EP.05-state-management",
+  "title": "状态不串号",
+  "part": "docs/05-state",
+  "panels": [
+    {
+      "title": "困境：状态串号",
+      "speaker": "jiang",
+      "bubble": ["登录态塞进模块级 ref，", "同事一刷新页面——", "怎么显示别人的名字？！"],
+      "code": [
+        "// composables/user.ts 危险示范",
+        "const user = ref(null)",
+        "export const useUser = () => user",
+        { "t": "// 模块单例 跨请求共享", "c": "#f472b6" },
+        { "t": "// SSR 串号 隐私泄露", "c": "#fbbf24" }
+      ],
+      "note": ["服务端模块只加载一次。", "模块级 ref 会在请求间残留。"]
+    },
+    {
+      "title": "揭秘：useState",
+      "speaker": "shu",
+      "bubble": ["useState 按 key 管状态，", "SSR 序列化随页下发，", "每个请求各拿各的。"],
+      "code": [
+        "const user = useState('user',",
+        "  () => null)",
+        { "t": "// 每次请求独立初始化", "c": "#34d399" },
+        { "t": "// 水合同时回客户端", "c": "#34d399" }
+      ],
+      "note": ["useState 是 SSR 友好的共享 ref。", "同 key 处处访问同一份状态。"]
+    },
+    {
+      "title": "实证：Pinia 上场",
+      "speaker": "jun",
+      "bubble": ["状态多了上 Pinia，", "装个模块写 store，", "DevTools 里还能时光旅行！"],
+      "code": [
+        "// stores/cart.ts",
+        "export const useCart =",
+        "  defineStore('cart', {",
+        "    state: () => ({ items: [] })",
+        "  })"
+      ],
+      "note": ["@pinia/nuxt 装完即自动注册。", "store 内状态同样 SSR 安全。"]
+    },
+    {
+      "title": "结案：状态分层",
+      "speaker": "shu",
+      "bubble": ["轻量共享用 useState，", "复杂业务用 Pinia，", "模块级 ref 是禁区。"],
+      "pitfalls": [
+        "模块顶层 ref 在 SSR 必串号",
+        "useState 初值要可序列化",
+        "水合不一致查 clearNuxtState"
+      ],
+      "summary": "状态按请求隔离，key 定边界。"
+    }
+  ]
+}

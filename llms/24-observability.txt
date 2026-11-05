@@ -1,0 +1,199 @@
+# 24. 可观测性与生产调优（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/24-observability
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 24. 可观测性与生产调优
+
+> 本章示例：`app/server/plugins/observability.ts`、`app/plugins/web-vitals.client.ts`、`app/pages/dashboard.vue`、`app/composables/useFeatureFlag.ts`
+> 运行方式：`cd app && npm install && npm run build && node .output/server/index.mjs`，浏览器访问 `http://localhost:3000/dashboard`
+
+## 概念解析
+
+**可观测性的三支柱——日志、指标、链路追踪——在 Nuxt 里要覆盖「浏览器 + Nitro」两个运行时**，这正是全栈框架区别于纯前端的地方：一次用户点击可能经过浏览器渲染、Nitro SSR、内部 API、上游微服务四跳，任何一跳出问题都会表现为「页面打不开」。落地顺序建议从日志开始：Nuxt/Nitro 内置的 `consola` 适合开发期，生产应输出**结构化 JSON 日志**（每行一个 JSON 对象，字段含 `traceId`、`path`、`status`、`durationMs`），交给 Loki/ELK/Datadog 采集后按字段检索，而不是在文本里 grep。串联全链路的关键是 **trace id**：请求进 Nitro 时生成或继承上游的 `x-trace-id`，写入响应头、日志，以及转发给上游的每一个 `$fetch` 请求头——这就是轻量版 OpenTelemetry 的精髓；接完整 OTel SDK 则再加 span 与 collector（Jaeger/Zipkin），中等规模团队先用「trace id + JSON 日志」就能覆盖八成排障场景。
+
+**错误追踪的核心不是「接到报错」而是「能定位到源码」**。Sentry 在 Nuxt 里要接两端：客户端（Vue 错误、未捕获 Promise）与 Nitro 服务端（API 异常、SSR 渲染失败）。构建产物是压缩混淆过的，必须**上传 source map 并在上传后从产物中删除**（既还原始堆栈又不泄露源码），同时用 `release` 把错误与版本关联——线上报错一看就知道是哪个发布引入的。客户端侧的兜底是 `NuxtErrorBoundary`：全局 `error.vue` 是整页崩溃的最后防线，而错误边界让次要模块（侧栏推荐、营销挂件）失败时**局部降级**，页面主体照常可用，配合 `#error` 插槽给出重试入口。
+
+**性能观测分两条线：服务端响应时间看日志里的 `durationMs`，真实用户体验看 Web Vitals**。`web-vitals` 库采集 LCP（加载）、INP（交互）、CLS（稳定性），上报用 `navigator.sendBeacon`——它不阻塞主线程、页面卸载时浏览器仍保证送达，这是 `fetch` 做不到的。上报端点 `/api/vitals` 只是个 `readBody` 落库的 Nitro 路由，按页面路径聚合后看 P75 分位；大流量站点在采集端做 10% 采样控制成本。Feature flag 则是「灰度发布」的载体：开关放在 `runtimeConfig.public` 里（服务端渲染下发、运行时改环境变量即生效、无需重建），按用户 ID 做一致性哈希分桶，实现 5% → 50% → 100% 的渐进放量，出问题把 flag 一关就是秒级回滚。
+
+**生产调优是一份清单而非玄学**。Node 侧：`NODE_OPTIONS=--max-old-space-size=2048` 按容器内存水位调整堆上限；开 `NODE_ENV=production`（Nuxt 构建产物已默认，但自己起进程时要确认）。Nitro 侧：preset 必须与部署目标匹配（`node-server`/`vercel`/`cloudflare-pages`），静态路由用第 15 章的 `routeRules` 卸到缓存层。架构侧：无状态 Nuxt 实例可直接水平扩容 + 负载均衡，会话存 Cookie 或外部 Redis、别依赖实例内存；提供 `/api/health` 健康检查端点给 LB 探活；进程收到 `SIGTERM` 时停止接新连接、处理完在途请求再退出（PM2/Docker 环境下这决定滚动发布是否掉请求）。
+
+## 典型应用场景
+
+- **线上 500 排查**：JSON 日志按 `traceId` 一搜，同一请求的 SSR、API、上游调用记录全部串出，分钟级定位到失败跳。
+- **发版质量看护**：Sentry 按 `release` 对比新旧版本错误率，新版本错误率飙升自动告警，决定继续放量还是回滚。
+- **性能预算巡检**：Web Vitals 按页面聚合 P75，LCP 超 2.5s 的页面进优化 backlog，用数据而不是感觉排优先级。
+- **局部故障降级**：侧栏「猜你喜欢」接口超时，`NuxtErrorBoundary` 只让它自己变成重试卡片，正文阅读不受任何影响。
+- **新功能灰度**：feature flag 按用户 ID 分桶放量，客服反馈异常时改一个环境变量即全量关闭，无需重新部署。
+- **滚动发布不掉请求**：K8s/Docker 下发 `SIGTERM` 后完成在途请求再退出，配合健康检查端点实现零停机部署。
+
+## 完整代码示例
+
+```ts
+// 文件: app/server/plugins/observability.ts
+// Nitro 插件：trace id 生成/继承 + 请求级结构化 JSON 日志
+import { randomUUID } from 'node:crypto';
+
+export default defineNitroPlugin((nitroApp) => {
+    nitroApp.hooks.hook('request', (event) => {
+        // 上游带来 trace id 则续链，否则开新链；写入响应头便于客户端/网关对齐
+        const traceId = getRequestHeader(event, 'x-trace-id') ?? randomUUID();
+        event.context.traceId = traceId;
+        event.context.startAt = performance.now();
+        setResponseHeader(event, 'x-trace-id', traceId);
+    });
+
+    nitroApp.hooks.hook('afterResponse', (event) => {
+        const status = event.node.res.statusCode;
+        const durationMs = Number((performance.now() - (event.context.startAt ?? 0)).toFixed(1));
+        // 一行一个 JSON：采集进 Loki/ELK 后可按字段检索与聚合
+        console.log(JSON.stringify({
+            level: status >= 500 ? 'error' : 'info',
+            traceId: event.context.traceId,
+            method: event.method,
+            path: getRequestURL(event).pathname,
+            status,
+            durationMs
+        }));
+    });
+});
+```
+
+> 运行方式：`npm run build && node .output/server/index.mjs`，访问任意页面后观察 stdout 的 JSON 日志；响应头中的 `x-trace-id` 与日志里的 `traceId` 一一对应。转发上游时在 `$fetch(url, { headers: { 'x-trace-id': event.context.traceId } })` 中续链。
+
+```ts
+// 文件: app/plugins/web-vitals.client.ts
+// Web Vitals 采集：仅客户端运行，sendBeacon 保证页面卸载时也能送达
+import { onCLS, onINP, onLCP, type Metric } from 'web-vitals';
+
+export default defineNuxtPlugin(() => {
+    // 10% 采样：大流量站点控制上报成本
+    if (Math.random() > 0.1) return;
+    const report = (metric: Metric) => {
+        const payload = JSON.stringify({
+            name: metric.name,
+            value: metric.value,
+            path: location.pathname
+        });
+        // sendBeacon 不阻塞主线程，页面关闭时浏览器仍负责送达（fetch 做不到）
+        navigator.sendBeacon('/api/vitals', payload);
+    };
+    onLCP(report); // 加载：LCP 超 2.5s 即需优化
+    onINP(report); // 交互：INP 超 200ms 说明主线程太堵
+    onCLS(report); // 稳定：CLS 超 0.1 说明布局在跳动
+});
+```
+
+> 运行方式：`npm install web-vitals` 后新建 `app/server/api/vitals.post.ts`（`readBody` 后落库或先打日志），`npm run dev` 访问几个页面，在 vitals 端点日志中观察 LCP/INP/CLS 上报记录。
+
+```vue
+<!-- 文件: app/pages/dashboard.vue -->
+<script setup lang="ts">
+    // 区块级错误隔离：次要模块挂了不拖垮整页
+    const boundaryError = ref<Error | null>(null);
+
+    function retryWidget() {
+        // 清除错误状态即触发边界内子树重新渲染
+        boundaryError.value = null;
+    }
+</script>
+
+<template>
+    <main>
+        <h1>工作台</h1>
+        <NuxtErrorBoundary @error="boundaryError = $event">
+            <!-- 次要挂件：接口超时/渲染异常只影响这一块 -->
+            <LatestNotesWidget />
+            <template #error="{ error }">
+                <div class="widget-fallback">
+                    <p>最新动态加载失败：{{ error.message }}</p>
+                    <button type="button" @click="retryWidget">重试</button>
+                </div>
+            </template>
+        </NuxtErrorBoundary>
+    </main>
+</template>
+```
+
+> 运行方式：访问 `http://localhost:3000/dashboard`，在 `LatestNotesWidget` 依赖的接口里临时 `throw createError(...)` 可看到降级卡片与重试按钮，页面其余部分正常；重试后子树重新挂载。
+
+```ts
+// 文件: app/composables/useFeatureFlag.ts
+// Feature flag：runtimeConfig 运行时下发开关 + 用户 ID 一致性分桶渐进放量
+export function useFeatureFlag(flag: string, userId?: string) {
+    const { public: { featureFlags } } = useRuntimeConfig();
+    const rule = featureFlags?.[flag] as { enabled?: boolean; percentage?: number } | undefined;
+
+    return computed(() => {
+        if (!rule?.enabled) return false;
+        const pct = rule.percentage ?? 100;
+        if (pct >= 100) return true;
+        if (!userId) return false;
+        // 简单一致性哈希：同一用户永远落在同一桶，体验不随刷新跳变
+        let hash = 0;
+        for (const ch of `${flag}:${userId}`) {
+            hash = (hash * 31 + ch.charCodeAt(0)) % 100;
+        }
+        return hash < pct;
+    });
+}
+```
+
+> 运行方式：`nuxt.config.ts` 的 `runtimeConfig.public.featureFlags` 中加入 `newEditor: { enabled: true, percentage: 5 }`，页面里 `useFeatureFlag('newEditor', user.value?.id)` 控制新编辑器渲染；生产用 `NUXT_PUBLIC_FEATURE_FLAGS` 环境变量调整比例，改完重启进程即生效、无需重建。
+
+## 最佳实践
+
+1. **日志只认结构化 JSON**：每行一个对象、字段固定（`traceId`/`path`/`status`/`durationMs`），杜绝自由文本——检索与聚合能力在写日志那一刻就决定了。
+2. **trace id 贯穿每一次转发**：Nitro 里 `$fetch` 调上游必须带 `x-trace-id`；客户端上报错误时从响应头取同一 id，前后端记录一键关联。
+3. **source map 上传后即删**：Sentry 上传产物 `.map` 文件并在发布流程中从 `.output/public` 移除，错误栈还原与源码保护兼得；`release` 用 git commit hash 保证错误与版本严格对应。
+4. **Vitals 看 P75 不看均值**：均值会被高速用户掩盖长尾；按页面路径聚合 P75 设预算告警，采集端按需采样控制成本。
+5. **错误边界只包次要模块**：`NuxtErrorBoundary` 的粒度是「挂了不影响主流程的挂件」；主流程链路（正文、下单）应保证自身健壮，全局兜底交给 `error.vue`。
+6. **调优清单进发布流程**：preset 匹配平台、`--max-old-space-size` 按容器水位设定、`/api/health` 探活、多实例无状态 + 会话外置、`SIGTERM` 优雅退出——逐条打勾才算上线就绪。
+
+## 常见问题
+
+### Q：开发期 `console.log` 一把梭，上线后为什么必须换结构化日志？
+
+A：文本日志只能全文 grep，没法回答「P95 响应时间」「5xx 集中在哪些路径」这类聚合问题；多实例部署时日志分散在各容器，没有 `traceId` 根本无法把一次请求的记录拼起来。结构化 JSON 是让日志从「打印」变成「数据」的最低成本改造。
+
+### Q：Sentry 收到的错误堆栈全是混淆后的代码，定位不到源码？
+
+A：source map 没有随构建上传，或上传时的 `release` 与事件里的 `release` 不一致。在 CI 构建后执行 Sentry 的 sourcemap 上传（以 git commit hash 作为 release 名），并在上传成功后从产物目录删除 `.map` 文件，再核对 SDK 初始化时传入同一个 release。
+
+### Q：直接接完整 OpenTelemetry SDK 太重，有没有轻量起步方案？
+
+A：有，分两步走：第一步只实现「trace id 生成/继承 + JSON 日志 + 转发透传」（本章示例即此方案，约 30 行），覆盖跨服务关联排查；当服务拓扑复杂到需要可视化火焰图时，第二步再引入 OTel SDK 与 collector（Jaeger/Zipkin），trace id 方案与 OTel 的 `traceparent` 语义兼容，迁移无痛。
+
+### Q：feature flag 和 A/B 测试有什么区别？
+
+A：flag 关注工程风险控制——按桶放量、随时关闭，验证的是「不出事故」；A/B 测试关注产品效果——分组对照、统计显著性，验证的是「哪个方案更好」。两者共用分桶机制但目标不同：上线新功能先 flag 灰度守稳定性，稳定后再跑 A/B 看转化。
+
+## 小结
+
+- 三支柱落地顺序：结构化 JSON 日志 + trace id 先行，Sentry 双端接错误，OTel 全量 SDK 按需后补。
+- Sentry 三件套：source map 上传后删除、`release` 绑定版本、客户端 + Nitro 双端接入。
+- Web Vitals 用 `web-vitals` + `sendBeacon` 上报，按页面聚合 P75 设预算；`NuxtErrorBoundary` 给次要模块局部降级。
+- feature flag 放 `runtimeConfig.public`，一致性哈希分桶渐进放量，改环境变量即回滚。
+- 生产调优清单：Node 堆内存、Nitro preset、健康检查、无状态水平扩容、`SIGTERM` 优雅退出。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】上报 Web Vitals 为什么用 `navigator.sendBeacon` 而不是 `$fetch`？</b></summary>
+
+`sendBeacon` 不阻塞主线程，且页面卸载（关闭、跳转）时浏览器仍保证把数据送达——这恰好是 LCP、CLS 等指标最常需要上报的时刻；普通 `fetch` 在页面卸载时会被中断，导致最差的那批体验数据恰恰丢失，统计结果系统性偏乐观。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】`NuxtErrorBoundary` 与全局 `error.vue` 的分工是什么？</b></summary>
+
+`error.vue` 是整页级最后防线：路由级渲染失败、未捕获的全局错误由它接管，用户看到整页错误页。`NuxtErrorBoundary` 是区块级隔离：把次要模块（挂件、侧栏）包起来，失败时只降级该区块并可通过 `#error` 插槽提供重试，页面主体不受影响。原则是能局部消化就不惊动全局——主流程靠自己的健壮性，非主流程靠错误边界。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】为什么放在 `runtimeConfig.public` 里的 feature flag「改环境变量即生效、无需重建」？依赖这一特性时要注意什么？</b></summary>
+
+`runtimeConfig` 的覆盖发生在服务启动（运行时）而非构建时：SSR 每次渲染都会读取当前生效的配置并序列化进 payload 下发，因此重启进程后新 flag 立即全站生效。注意三点：改动需重启进程才读取；客户端渲染页面在导航间隙才刷新配置，要求强一致的场景要在关键操作前重新拉取；`public` 下的 flag 对用户可见，只能用于功能放量，绝不能当权限控制用。
+
+</details>

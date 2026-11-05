@@ -1,0 +1,164 @@
+# 03. 文件路由与动态路由（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/03-file-based-routing
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 03. 文件路由与动态路由
+
+> 本章示例：`app/pages/index.vue`、`app/pages/notes/index.vue`、`app/pages/notes/[id].vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/notes/1`
+
+## 概念解析
+
+Nuxt 的路由由文件系统驱动：只要 `app/pages/` 目录存在，Nuxt 就会自动接入 vue-router 并扫描其中的 `.vue` 文件生成路由表，无需手写任何路由配置（也可以在 `nuxt.config.ts` 中显式设置 `pages: true`）。`app/pages/index.vue` 对应 `/`，`app/pages/about.vue` 对应 `/about`，目录对应路径层级。如果项目没有 `pages/` 目录，Nuxt 会退化为只渲染 `app.vue` 的普通单页应用。
+
+动态路由用方括号声明：`app/pages/notes/[id].vue` 匹配 `/notes/1`、`/notes/42` 等路径，组件内通过 `useRoute()` 拿到 `route.params.id`——注意路由参数始终是字符串。需要匹配任意深度的路径时使用 catch-all：`app/pages/docs/[...slug].vue` 可匹配 `/docs/a/b/c`，此时 `route.params.slug` 是字符串数组。嵌套路由靠「同名组件 + 同名目录」实现：同时存在 `app/pages/notes.vue` 与 `app/pages/notes/` 目录时，`notes.vue` 成为父级组件，其中用 `<NuxtPage />` 作为子路由出口，目录下的页面渲染进这个出口——它比布局更细，适合页面内部再分层。
+
+路由健壮性由 `definePageMeta` 提供：`validate` 钩子可在进入页面前校验参数，返回 `false` 会显示 404 错误页（也可以返回 `{ statusCode, statusMessage }` 定制错误）。404 的定制有两条路：全局错误页用 `app/error.vue`，或在 catch-all 页面里自行渲染「未找到」并配合 `setResponseStatus(404)`。需要微调 vue-router 行为（如 `scrollBehavior`）时，在 `app/router.options.ts` 中导出路由配置即可，它会被合并进自动生成的路由。最后区分两个 composable：`useRoute` 返回当前路由的响应式对象（读参数、query 用它）；`useRouter` 返回路由器实例（`push`/`replace` 等方法），但在 setup 中做跳转更推荐对 SSR 友好的 `navigateTo`（下一章详述）。
+
+## 典型应用场景
+
+- **列表 → 详情**：`notes/index.vue` 渲染列表并支持 `?q=` 搜索，`notes/[id].vue` 渲染详情，是最常见的内容站结构。
+- **多段路径文档站**：`[...slug].vue` 一个页面吃下任意层级，配合内容接口渲染文档树。
+- **页面内分层**：详情页内再嵌套「编辑/预览」子页，用同名父组件 + `<NuxtPage />` 实现局部嵌套。
+- **参数防脏**：`validate` 拦截非数字 id、非法 slug，避免无意义请求打到接口。
+- **搜索与筛选**：用 `route.query` 驱动列表过滤，URL 可分享、可刷新、可后退。
+
+## 完整代码示例
+
+```vue
+<!-- 文件: app/pages/index.vue -->
+<script setup lang="ts">
+import type { Note } from '#shared/types/note'
+
+// 文件即路由：本文件对应路径 /
+const { data: notes, pending } = await useFetch<Note[]>('/api/notes')
+</script>
+
+<template>
+    <main>
+        <h1>学习笔记</h1>
+        <p v-if="pending">加载中……</p>
+        <!-- NoteCard 自动导入，无需 import -->
+        <NoteCard v-for="note in notes" :key="note.id" :note="note" />
+    </main>
+</template>
+```
+
+> 运行方式：`npm run dev` 后访问 `http://localhost:3000/` ，`app/pages/index.vue` 自动成为首页路由。
+
+```vue
+<!-- 文件: app/pages/notes/index.vue -->
+<script setup lang="ts">
+import type { Note } from '#shared/types/note'
+
+// 对应路径 /notes；用 route.query.q 驱动搜索，URL 可直接分享
+const route = useRoute()
+const keyword = computed(() => String(route.query.q ?? ''))
+
+const { data: notes } = await useFetch<Note[]>('/api/notes', {
+    query: { q: keyword },    // 把关键字带给接口
+    watch: [keyword]          // URL 中的 q 变化时自动重新请求
+})
+</script>
+
+<template>
+    <main>
+        <h1>笔记列表</h1>
+        <p v-if="keyword">搜索：{{ keyword }}</p>
+        <NoteCard v-for="note in notes" :key="note.id" :note="note" />
+    </main>
+</template>
+```
+
+> 运行方式：访问 `http://localhost:3000/notes?q=nuxt` ，修改地址栏中的 `q` 值，列表会随 query 变化自动刷新。
+
+```vue
+<!-- 文件: app/pages/notes/[id].vue -->
+<script setup lang="ts">
+import type { Note } from '#shared/types/note'
+
+// 动态路由：本文件匹配 /notes/:id
+definePageMeta({
+    // 进入页面前校验参数，非法 id 直接 404
+    validate: (route) => /^\d+$/.test(String(route.params.id))
+})
+
+const route = useRoute()
+// URL 写成 getter：同组件复用（/notes/1 → /notes/2）时会自动重新取数
+const { data: note } = await useFetch<Note>(() => `/api/notes/${route.params.id}`)
+
+// 按笔记内容动态设置 SEO 元信息
+useSeoMeta({
+    title: () => note.value?.title ?? '笔记详情',
+    description: () => note.value?.excerpt
+})
+</script>
+
+<template>
+    <article v-if="note">
+        <h1>{{ note.title }}</h1>
+        <p>{{ note.content }}</p>
+        <!-- formatDate 来自 app/utils/format.ts，自动导入 -->
+        <p>发布于：{{ formatDate(note.createdAt) }}</p>
+    </article>
+</template>
+```
+
+> 运行方式：访问 `http://localhost:3000/notes/1` 查看详情；访问 `http://localhost:3000/notes/abc` 会因 `validate` 失败返回 404。
+
+## 最佳实践
+
+- **路由参数当字符串处理**：`route.params.id` 是 `string`，与数字比较前先转换，或用 `validate` 正则把脏参数挡在页面外。
+- **catch-all 留给真正多级的场景**：能用 `[id]` 表达的单层参数不要用 `[...slug]`，数组参数的解析与匹配优先级都更复杂。
+- **嵌套路由与布局分工**：跨页面的公共外壳用 `layouts/`，单个页面内部的二级出口才用「同名父组件 + `<NuxtPage />`」。
+- **校验失败尽量返回 404 语义**：`validate` 返回 `false` 即 404；确需其他错误码时用 `{ statusCode, statusMessage }` 表达真实原因。
+- **路由微调集中到 `router.options.ts`**：`scrollBehavior` 等全局行为在这里改，不要在各页面手写 `window.scrollTo`。
+
+## 常见问题
+
+### Q：新增 `app/pages/` 里的文件后路由没生效？
+A：正常情况下 Nuxt 会自动重新生成路由；若开发服务器状态异常，保存文件触发 HMR，仍不行就重启 `nuxi dev`。另外确认文件在 Nuxt 4 源码目录 `app/pages/` 下，而不是仓库根的旧 `pages/`。
+
+### Q：`useRoute` 和 `useRouter` 到底怎么选？
+A：`useRoute` 读当前路由（params/query/hash），`useRouter` 拿路由器实例调 `push`/`replace`。但在 setup 或中间件里做跳转，优先用 `navigateTo`（第 04 章），它对 SSR 更友好。
+
+### Q：动态路由参数变化（/notes/1 → /notes/2）页面不重新取数？
+A：同组件复用时 setup 不会重跑，但 `route.params` 是响应式的。把 `useFetch` 的 URL 写成 getter（如 `() => \`/api/notes/${route.params.id}\``）或设置 `watch`，参数变化即自动重新请求。
+
+### Q：如何定制 404 页面？
+A：两种思路：全局错误页用 `app/error.vue`（配合 `clearError` 恢复导航）；或在 `[...slug].vue` 中自行渲染「未找到」，并用 `setResponseStatus(404)` 设置正确的状态码。
+
+## 小结
+
+- `app/pages/` 存在即启用文件路由，目录与文件名直接映射 URL，`index.vue` 对应目录根路径。
+- 动态段用 `[param]`，任意深度用 `[...slug]`（参数为数组），组件内用 `useRoute` 读取。
+- 嵌套路由 = 同名 `.vue` 父组件 + 同名目录 + `<NuxtPage />` 子出口。
+- `definePageMeta({ validate })` 在进入页面前校验参数，返回 `false` 显示 404。
+- 全局路由行为放 `app/router.options.ts`；读路由用 `useRoute`，实例方法用 `useRouter`，跳转优先 `navigateTo`。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-2" target="_blank" rel="noopener">EP.02 路由与导航</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. `app/pages/notes/[id].vue` 与 `app/pages/docs/[...slug].vue` 取到的参数有什么差别？</b></summary>
+
+`[id]` 只匹配单层路径，`route.params.id` 是字符串；`[...slug]` 匹配任意深度，`route.params.slug` 是字符串数组（如 `/docs/a/b` → `['a', 'b']`）。
+
+</details>
+
+<details>
+<summary><b>2. 如何在用户访问 `/notes/abc` 时直接返回 404，而不是让接口报错？</b></summary>
+
+在页面中写 `definePageMeta({ validate: (route) => /^\d+$/.test(String(route.params.id)) })`。`validate` 在进入页面前执行，返回 `false` 时 Nuxt 直接展示 404 错误页，请求不会打到接口。
+
+</details>
+
+<details>
+<summary><b>3. 想在 `/notes` 页面内再嵌套二级页面（如 `/notes/1`），文件应该怎么组织？</b></summary>
+
+创建 `app/pages/notes.vue` 作为父组件（内部放置 `<NuxtPage />` 作为子路由出口），并在同名目录 `app/pages/notes/` 下放置 `index.vue`、`[id].vue` 等子页面；同名文件与目录会被 Nuxt 组合成嵌套路由。
+
+</details>

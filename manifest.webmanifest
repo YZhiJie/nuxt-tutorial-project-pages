@@ -1,0 +1,18 @@
+{
+  "name": "Nuxt 4 实战教程",
+  "short_name": "Nuxt 教程",
+  "description": "从入门到精通的 Nuxt 4 系统教程",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#00dc82",
+  "icons": [
+    {
+      "src": "logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

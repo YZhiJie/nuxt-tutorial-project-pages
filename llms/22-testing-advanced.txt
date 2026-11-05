@@ -1,0 +1,227 @@
+# 22. 测试体系进阶（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/22-testing-advanced
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 22. 测试体系进阶
+
+> 本章示例：`app/vitest.config.ts`、`app/tests/composables/useNotes.test.ts`、`app/tests/components/NoteCard.test.ts`、`app/tests/e2e/notes.spec.ts`
+> 运行方式：`cd app && npm install -D @nuxt/test-utils happy-dom playwright-core && npx playwright install chromium`，单元/组件测试 `npm run test`，e2e 测试 `npx vitest run tests/e2e`
+
+## 概念解析
+
+第 14 章的纯函数单测只是金字塔的底座。Nuxt 应用的测试难点在于「代码离不开运行时」：composable 依赖 Nuxt 上下文、组件依赖自动导入与 `NuxtLink`、页面依赖 SSR 与水合。**`@nuxt/test-utils` 用一个框架覆盖三种模式**：纯单测（`node` 环境，测 `utils/` 里的纯函数，速度最快）；Nuxt 环境测试（`environment: 'nuxt'`，在真实的 Nuxt 实例里跑 composable 与组件，自动导入、`useRuntimeConfig`、插件全部就位，无需手工搭建应用）；e2e（`@nuxt/test-utils/e2e`，基于 Playwright，对**构建产物**起真实 server 后用浏览器驱动，最接近生产）。三者的配比就是经典金字塔：大量纯单测打底、适量 Nuxt 环境测试覆盖 composable 与组件、少量 e2e 守关键链路。
+
+**mock 的哲学是「只 mock 边界」**。Nuxt 环境里最大的边界是网络请求与自动导入的 composable，`mockNuxtImport` 专门解决后者：它是构建期宏，能把 `useFetch`、`useRoute` 这类自动导入替换成你的工厂实现。注意它的两层写法——外层工厂返回内层实现函数——因为自动导入的 composable 本身是「调用后返回结果」的函数。配合 `vi.hoisted` 提前声明 mock 函数，就可以在断言里检查调用参数（比如 composable 是否用了约定的缓存 key）。
+
+**组件测试的核心 API 是 `mountSuspended`**。Nuxt 页面与组件普遍是 `async setup`（顶层 `await useFetch`），Vue 要求这类组件必须包在 `<Suspense>` 里挂载；`mountSuspended` 自动完成这层包裹并提供完整 Nuxt 上下文，返回标准的 Vue Test Utils wrapper。 sibling API `renderSuspended` 则返回渲染后的 HTML 字符串/DOM，适合断言纯输出。测试环境里的 `NuxtLink` 会被替换成 stub，断言它的 `to` prop 比模拟真实跳转更稳。
+
+**e2e 与质量门禁决定测试体系能否长寿**。`setup({ build: true })` 让每个 e2e 文件先构建再对 `.output/` 起服务，慢但真实；`createPage()` 拿到 Playwright 的 page，配合**页面对象模式**把选择器与操作封装成类，页面改版时只改一处。覆盖率用 v8 provider 采集，关键不是数字本身而是 `thresholds` 门禁——低于阈值 CI 直接红，存量项目可以先把阈值定在现状、再随债务清偿逐季上调。CI 侧的两大提速杠杆是缓存（pnpm store、Playwright 浏览器二进制）与并行（Node 版本矩阵 × e2e `--shard` 分片）。
+
+## 典型应用场景
+
+- **composable 回归测试**：`useNotes` 是否使用固定 key 共享缓存、`getCachedData` 逻辑是否正确，改动即知。
+- **组件契约测试**：`NoteCard` 的 props 变化后渲染输出与链接目标是否符合预期，重构样式时兜底。
+- **关键链路 e2e**：登录 → 创建笔记 → 列表可见，每次发版前自动跑一遍，人工只验视觉细节。
+- **API 契约断言**：e2e 里直接用 `$fetch` 打服务端接口，绕过 UI 验证数据形状，比纯 UI 路径快且稳。
+- **PR 质量门禁**：覆盖率 thresholds + `typecheck` + `test` 串进 GitHub Actions，红即禁止合并。
+- **大团队并行**：e2e 用 `--shard=1/4` 切片，Node LTS 双版本矩阵，playwright 浏览器缓存复用。
+
+## 完整代码示例
+
+```ts
+// 文件: app/vitest.config.ts
+import { defineVitestConfig } from '@nuxt/test-utils/config';
+
+// 按目录分环境：纯函数在 node 里跑（快），依赖 Nuxt 运行时的进 nuxt 环境
+export default defineVitestConfig({
+    test: {
+        environmentMatchGlobs: [
+            ['tests/unit/**', 'node'],
+            ['tests/components/**', 'nuxt'],
+            ['tests/composables/**', 'nuxt'],
+            ['tests/e2e/**', 'node'] // e2e 由 @nuxt/test-utils/e2e 自行起 server
+        ],
+        coverage: {
+            provider: 'v8',
+            reporter: ['text', 'html'],
+            // 覆盖率门禁：低于阈值直接失败，在 PR 阶段就拦住退化
+            thresholds: {
+                lines: 80,
+                functions: 80,
+                branches: 70,
+                statements: 80
+            }
+        },
+        include: ['tests/**/*.test.ts', 'tests/e2e/**/*.spec.ts']
+    }
+});
+```
+
+> 运行方式：`npm install -D @nuxt/test-utils happy-dom` 后执行 `npm run test`；加 `--coverage` 查看覆盖率报告与门禁判定。
+
+```ts
+// 文件: app/tests/composables/useNotes.test.ts
+import { describe, expect, it, vi } from 'vitest';
+import { mockNuxtImport } from '@nuxt/test-utils/runtime';
+import { useNotes } from '~/composables/useNotes';
+
+// vi.hoisted：mock 宏提升到模块顶部执行，变量声明也要同步提升
+const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }));
+
+// 两层写法：外层工厂返回「useFetch 的实现函数」，调用参数落到 fetchMock 上
+mockNuxtImport('useFetch', () => {
+    return (url: string, opts?: Record<string, unknown>) => fetchMock(url, opts);
+});
+
+describe('useNotes', () => {
+    it('列表请求使用固定 key 以共享缓存', () => {
+        useNotes();
+        expect(fetchMock).toHaveBeenCalledWith(
+            '/api/notes',
+            expect.objectContaining({ key: 'notes-list' })
+        );
+    });
+
+    it('配置 getCachedData 优先命中 payload 缓存', () => {
+        useNotes();
+        const opts = fetchMock.mock.calls[0]?.[1] as Record<string, unknown>;
+        expect(typeof opts.getCachedData).toBe('function');
+    });
+});
+```
+
+> 运行方式：`npm run test`，该文件命中 `tests/composables/**` 的 nuxt 环境，`useFetch` 被替换为 mock，断言不产生真实网络请求。
+
+```ts
+// 文件: app/tests/components/NoteCard.test.ts
+import { describe, expect, it } from 'vitest';
+import { mountSuspended } from '@nuxt/test-utils/runtime';
+import NoteCard from '~/components/NoteCard.vue';
+import type { Note } from '#shared/types/note';
+
+const note: Note = {
+    id: 7,
+    title: '深入 Nitro',
+    excerpt: '服务端引擎一览',
+    content: '正文……',
+    tags: ['nitro', 'nuxt'],
+    createdAt: '2026-10-18T12:00:00'
+};
+
+describe('NoteCard', () => {
+    it('渲染标题、摘要并链接到详情页', async () => {
+        // mountSuspended：自动包 Suspense 并提供 Nuxt 上下文，支持 async setup
+        const wrapper = await mountSuspended(NoteCard, { props: { note } });
+        expect(wrapper.text()).toContain('深入 Nitro');
+        expect(wrapper.text()).toContain('服务端引擎一览');
+        // NuxtLink 在测试环境渲染为 stub，断言 to prop 比模拟真实跳转更稳
+        expect(wrapper.findComponent({ name: 'NuxtLink' }).props('to')).toBe('/notes/7');
+    });
+
+    it('为每个标签渲染一枚标签节点', async () => {
+        const wrapper = await mountSuspended(NoteCard, { props: { note } });
+        expect(wrapper.findAll('.note-tag')).toHaveLength(2);
+    });
+});
+```
+
+> 运行方式：`npm run test`，命中 `tests/components/**` 的 nuxt 环境；组件内自动导入的 `formatDate` 与 `NuxtLink` 均按真实应用行为解析。
+
+```ts
+// 文件: app/tests/e2e/notes.spec.ts
+import { describe, expect, it } from 'vitest';
+import { $fetch, createPage, setup } from '@nuxt/test-utils/e2e';
+
+// 页面对象模式：选择器与操作封装成稳定 API，页面改版只改这个类
+class NotesPage {
+    constructor(private page: Awaited<ReturnType<typeof createPage>>) {}
+    async goto() {
+        // 等待水合完成再交互，避免点击落在未激活的 DOM 上
+        await this.page.goto('/notes', { waitUntil: 'hydration' });
+    }
+    async search(keyword: string) {
+        await this.page.getByPlaceholder('搜索笔记…').fill(keyword);
+    }
+    cardCount() {
+        return this.page.locator('.note-card').count();
+    }
+}
+
+describe('笔记列表 e2e', async () => {
+    // 先 build 再对 .output/ 起真实 server，最接近生产行为
+    await setup({ build: true });
+
+    it('输入关键字后列表联动过滤', async () => {
+        const notes = new NotesPage(await createPage());
+        await notes.goto();
+        await notes.search('nuxt');
+        expect(await notes.cardCount()).toBeGreaterThan(0);
+    });
+
+    it('API 契约：列表接口返回数组', async () => {
+        // e2e 环境内置 $fetch，可直接断言服务端契约，省去 UI 绕行
+        const list = await $fetch('/api/notes');
+        expect(Array.isArray(list)).toBe(true);
+    });
+});
+```
+
+> 运行方式：`npx playwright install chromium && npx vitest run tests/e2e`，首次会先执行 `nuxi build`；迭代期可改 `setup({ dev: true })` 跳过构建提速，合并前再切回 `build: true`。
+
+## 最佳实践
+
+1. **金字塔配比写下来**：纯单测占七成、Nuxt 环境测试两成、e2e 一成；e2e 只守登录、下单这类「挂了就是事故」的链路，别用它测边角样式。
+2. **mock 只 mock 边界**：网络请求（`useFetch`/`$fetch`）、浏览器 API、第三方 SDK 可以 mock；自己的业务逻辑绝不 mock，否则测试在验证你的幻想。
+3. **`mockNuxtImport` 与 `vi.hoisted` 成对出现**：宏在模块求值前提升执行，普通变量声明来不及就位；忘记 hoisted 是最常见的「mock 不生效」原因。
+4. **e2e 交互前等水合**：`goto(url, { waitUntil: 'hydration' })` 消除「点了没反应」的抖动；选择器优先 `getByRole`/`getByPlaceholder` 这类用户可感知的定位器，少用语义脆弱的 class。
+5. **覆盖率门槛渐进收紧**：老项目先把 thresholds 定在现状值防退化，每个迭代上调 1~2 个点；一步到位定 90% 只会逼出为凑数而写的废测试。
+6. **CI 缓存与矩阵是免费午餐**：GitHub Actions 缓存 pnpm store 与 `~/.cache/ms-playwright`，Node 双版本矩阵并行，e2e 用 `--shard` 切片；测试慢是团队不写测试的第一借口，把它消灭掉。
+
+## 常见问题
+
+### Q：`mockNuxtImport` 写了却不生效，mock 完全没被调用？
+
+A：三个高频原因：文件不在 nuxt 环境（检查 `environmentMatchGlobs`）；宏引用的变量没放进 `vi.hoisted`（提升时序问题）；被测模块在 mock 注册之前就被 import 了——把 `mockNuxtImport` 保持在文件顶部、被测 import 之后引用即可（Vitest 会提升 import，但宏在转换期处理，顺序以官方文档写法为准）。
+
+### Q：`mountSuspended` 挂载报「async setup 需要 Suspense」或拿不到 Nuxt 上下文？
+
+A：确认两点：该测试文件命中了 nuxt 环境；`mountSuspended` 调用前有 `await`（它返回 Promise）。直接换用 `@vue/test-utils` 的 `mount` 会在依赖自动导入/插件的组件上失败，Nuxt 组件请统一走 `mountSuspended`。
+
+### Q：e2e 里 `setup({ build: true })` 太慢，日常开发怎么提速？
+
+A：调试单个用例时切 `setup({ dev: true })` 复用 dev server，或先用 `npm run build` 手动构建后让 setup 复用产物；CI 保持 `build: true` 保证对真实产物把关。另外 e2e 文件间用 `--shard` 并行能线性压缩总时长。
+
+### Q：老项目覆盖率只有 30%，thresholds 一定就全红怎么办？
+
+A：先把 thresholds 定在 25%（略低于现状）作为「防退化线」——不允许任何 PR 让覆盖率下降；新代码目录用 `coverage.thresholds` 的按路径配置单独定高标准。存量债务按模块排期清偿，逐季上调全局阈值。
+
+## 小结
+
+- `@nuxt/test-utils` 三模式：node 纯单测、nuxt 环境（composable/组件）、e2e（Playwright 打真实构建产物），按金字塔配比投入。
+- `mockNuxtImport` 用两层工厂 mock 自动导入的边界，配合 `vi.hoisted` 解决提升时序。
+- 组件用 `mountSuspended`（自动 Suspense + Nuxt 上下文），`NuxtLink` 断言 `to` prop。
+- e2e 用页面对象模式封装选择器、`waitUntil: 'hydration'` 等水合、`$fetch` 直接断言 API 契约。
+- 质量靠门禁不靠自觉：coverage thresholds 渐进收紧，CI 缓存 + 矩阵 + 分片压时长。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】`@nuxt/test-utils` 的三种测试模式各自跑在什么环境、分别适合测什么？</b></summary>
+
+node 纯单测跑在 Node 环境，适合 `utils/` 纯函数与工具库，速度最快；nuxt 环境测试在真实 Nuxt 实例中执行，自动导入、运行时配置、插件全部可用，适合 composable 与组件；e2e 用 Playwright 驱动浏览器访问构建产物起的真实 server，适合登录、下单等关键链路的端到端验证。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】`mockNuxtImport('useFetch', () =&gt; (url, opts) =&gt; mock(url, opts))` 为什么要写成「工厂返回实现函数」的两层结构？</b></summary>
+
+自动导入的 composable 是「调用后返回结果」的函数。外层工厂在模块加载时执行一次，返回的才是被测代码里 `useFetch(...)` 真正调用的实现。这样每次调用参数都落到内层 mock 函数上，断言时可以检查调用次数与参数；若只写一层，`useFetch` 会被替换成工厂本身的返回值，失去对调用的捕获能力。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】页面对象模式（Page Object）在 e2e 中解决了什么问题？什么项目可以跳过它？</b></summary>
+
+它把选择器与交互步骤封装为稳定的类 API，用例只表达业务意图。收益有二：页面结构改版时只需改页面对象一处，几十个用例免于连锁修改；选择器策略（如 getByRole 优先）得以统一贯彻。一次性脚本、用例总数个位数的个人小项目可以跳过——抽象本身也是成本，页面对象的回报随用例规模与协作人数增长。
+
+</details>

@@ -1,0 +1,218 @@
+# 08. $fetch 与请求进阶（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/08-fetch-advanced
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 08. $fetch 与请求进阶
+
+> 本章示例：`app/plugins/02.api.ts`、`app/pages/login.vue`、`app/server/api/notes/[id].get.ts`、`app/error.vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/login` 与 `http://localhost:3000/notes/999`
+
+## 概念解析
+
+`$fetch`（基于 ofetch）是 Nuxt 里的通用请求工具：它**不做**水合、缓存与 key 共享，就是一次干净的异步请求。它的适用场景与 `useFetch` 正好互补——事件处理（表单提交、按钮点击）、纯客户端逻辑、`POST / PUT / DELETE` 等「与首屏渲染无关」的请求都用 `$fetch`。判断标准很简单：**渲染需要的数据用 `useFetch`，用户动作产生的请求用 `$fetch`**。
+
+项目里通常不会到处裸用 `$fetch`，而是用 `$fetch.create` 创建一个带 `baseURL` 与拦截器的实例，再通过 Nuxt 插件 `provide` 出去统一使用。ofetch 提供四个拦截钩子：`onRequest`（请求发出前，注入 token 等）、`onRequestError`（请求未能发出的失败，如断网）、`onResponse`（成功响应）、`onResponseError`（非 2xx 响应）——统一鉴权、统一 401 跳转、统一日志都在这一层收口。
+
+数据一致性上，动作完成后需要让 `useFetch` / `useAsyncData` 的缓存同步：`refreshNuxtData(keys)` 会让指定 key（不传则全部）的 handler **重新执行**；`clearNuxtData(keys)` 则把 `data` 重置为空、`status` 置为 `idle`，适合登出这类「清空即可」的场景。
+
+错误处理建议按三层理解：① 服务端用 `createError({ statusCode, statusMessage })` 抛出标准错误响应；② 客户端 `useFetch` 返回的 `error` 是 `NuxtError`，`error.value.data` 里能读到服务端响应体（`$fetch` 则是捕获异常的 `err.data`）；③ 页面级兜底——`error.vue` 捕获全局未处理错误，配合 `clearError({ redirect: '/' })` 恢复现场；组件级兜底用 `<NuxtErrorBoundary>` 的 `#error` 插槽做局部降级，不让一个模块拖垮整页。
+
+最后一个 SSR 专属坑：服务端渲染期间是 **Nuxt 服务器**（而非浏览器）去请求内部 API，浏览器的 cookie 不会自动带上。两种解法：手动 `headers: useRequestHeaders(['cookie'])` 转发；或更省心地使用 `useRequestFetch()`——它返回一个已自动转发 cookie 等请求头的 `$fetch`（仅在 setup 阶段的 SSR 期间有效）。
+
+## 典型应用场景
+
+- **登录 / 表单提交**：用 `$fetch`（或封装后的 `$api`）发起 POST，成功后 `refreshNuxtData` 刷新相关数据。
+- **统一 API 层**：`plugins/02.api.ts` 中 `$fetch.create` + 拦截器，全站复用同一个 `$api`。
+- **鉴权接口 SSR 预取**：`useRequestFetch` 转发 cookie，让「当前用户」在服务端就能取到。
+- **优雅降级**：详情页 404 时用 `error.value.data` 展示服务端给出的原因；局部模块失败用 `NuxtErrorBoundary` 隔离。
+- **全局兜底**：未捕获错误落到 `error.vue`，一键 `clearError` 回到首页。
+
+## 完整代码示例
+
+```ts
+// 文件: app/plugins/02.api.ts
+export default defineNuxtPlugin(() => {
+    // 统一封装的 API 实例：baseURL + 拦截器
+    const api = $fetch.create({
+        baseURL: '/api',
+        onRequest({ options }) {
+            // 请求发出前：注入凭证（示例：从 cookie 读取登录 token）
+            const token = useCookie('token')
+            if (token.value) {
+                options.headers.set('Authorization', `Bearer ${token.value}`)
+            }
+        },
+        onRequestError({ error }) {
+            // 请求尚未发出就失败（断网、跨域等）
+            console.error('[api] 请求失败：', error.message)
+        },
+        onResponse() {
+            // 成功响应钩子：需要统一解包/埋点时在这里处理
+        },
+        onResponseError({ response }) {
+            // 401 统一跳登录；其余错误交给调用方处理
+            if (response.status === 401) {
+                return navigateTo('/login')
+            }
+            console.error(`[api] ${response.status} ${response.statusText}`)
+        }
+    })
+
+    return {
+        provide: {
+            api  // 之后通过 useNuxtApp().$api 或模板中的 $api 使用
+        }
+    }
+})
+```
+> 运行方式：`cd app && npm install && npm run dev`，插件自动注册；在任意页面 `useNuxtApp().$api('/notes')` 即可走统一拦截器。
+
+```vue
+<!-- 文件: app/pages/login.vue -->
+<script setup lang="ts">
+    definePageMeta({ layout: 'blank' })
+
+    const { $api } = useNuxtApp()
+    const email = ref('')
+    const password = ref('')
+    const errorMsg = ref('')
+
+    async function onSubmit() {
+        errorMsg.value = ''
+        try {
+            // 事件处理场景用 $api/$fetch：不涉及 SSR 水合
+            await $api('/auth/login', {
+                method: 'POST',
+                body: { email: email.value, password: password.value }
+            })
+            // 登录成功：让第 07 章约定的缓存 key 重新取数
+            await refreshNuxtData('notes-list')
+            await navigateTo('/')
+        } catch (err) {
+            // $fetch 抛出的异常上挂着服务端响应体 err.data
+            const e = err as { data?: { statusMessage?: string } }
+            errorMsg.value = e.data?.statusMessage ?? '登录失败，请稍后重试'
+        }
+    }
+</script>
+
+<template>
+    <main class="login-page">
+        <form @submit.prevent="onSubmit">
+            <input v-model="email" type="email" placeholder="邮箱" required />
+            <input v-model="password" type="password" placeholder="密码" required />
+            <button type="submit">登录</button>
+            <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
+        </form>
+    </main>
+</template>
+```
+> 运行方式：访问 `http://localhost:3000/login` ，用错误密码提交可看到 `err.data.statusMessage` 的提示效果。
+
+```ts
+// 文件: app/server/api/notes/[id].get.ts
+import type { Note } from '#shared/types/note'
+
+// 演示用内存数据（真实项目替换为数据库查询）
+const notes: Note[] = [
+    {
+        id: 1,
+        title: 'useFetch 快速上手',
+        excerpt: 'SSR 数据获取三件套',
+        content: '……',
+        tags: ['nuxt4', 'data'],
+        createdAt: '2025-07-15T00:00:00.000Z'
+    }
+]
+
+export default defineEventHandler((event) => {
+    const id = Number(getRouterParam(event, 'id'))
+    const note = notes.find((n) => n.id === id)
+    if (!note) {
+        // createError：抛出标准错误响应，客户端可在 error.value.data 读到完整信息
+        throw createError({ statusCode: 404, statusMessage: '笔记不存在' })
+    }
+    return note
+})
+```
+> 运行方式：直接访问 `http://localhost:3000/api/notes/999` 可见 404 JSON；访问 `http://localhost:3000/notes/999` 可看到详情页的错误展示。
+
+```vue
+<!-- 文件: app/error.vue -->
+<script setup lang="ts">
+    // error.vue 是全局兜底页：showError / 未捕获异常都会落到这里
+    const error = useError()
+
+    function goHome() {
+        // clearError 清空当前错误，并可附带跳转恢复现场
+        clearError({ redirect: '/' })
+    }
+</script>
+
+<template>
+    <main class="error-page">
+        <h1>{{ error?.statusCode ?? 500 }}</h1>
+        <p>{{ error?.statusMessage ?? '页面出了点问题，请稍后再试' }}</p>
+        <button type="button" @click="goHome">回到首页</button>
+    </main>
+</template>
+```
+> 运行方式：触发任意未捕获错误（如访问不存在的路由且服务端抛错）即进入该页，点击按钮回首页。
+
+## 最佳实践
+
+1. **渲染用 `useFetch`，动作用 `$fetch`**：混用是新手最常见的错误——用 `$fetch` 取首屏数据会丢掉 SSR 与水合复用。
+2. **一个项目一个 `$api` 实例**：baseURL、鉴权注入、401 处理全部收口在插件拦截器里，业务代码不发「裸请求」。
+3. **动作成功后显式 `refreshNuxtData(key)`**：不要假设缓存会自动同步，key 与 composable 里的约定保持一致。
+4. **错误信息分三层消化**：服务端 `createError` 给语义、调用处读 `error.data` / `err.data` 给反馈、边界组件做兜底。
+5. **SSR 请求内部 API 记得转发 cookie**：优先 `useRequestFetch()`，手动方案用 `useRequestHeaders(['cookie'])`。
+6. **`onResponseError` 里别再 `throw`**：拦截器只负责记录与跳转，把具体错误提示留给调用方，避免双重处理。
+
+## 常见问题
+
+### Q：`$fetch` 和 `useFetch` 到底怎么选？
+A：看数据是否参与渲染。渲染需要（列表、详情）→ `useFetch`，享受 SSR、水合与缓存共享；用户动作触发（提交、点赞）→ `$fetch`，它只是一次普通请求，没有缓存语义。
+
+### Q：`useFetch` 报错了，怎么拿到服务端返回的 JSON 错误体？
+A：`error` 是 `NuxtError`，服务端响应体在 `error.value.data`；若是 `$fetch` 的 try/catch，则读捕获异常的 `err.data`，`statusMessage`、`statusCode` 也在其上。
+
+### Q：`refreshNuxtData` 和 `clearNuxtData` 有什么区别？
+A：前者让指定 key 的 handler **重新执行**（数据刷新），后者只是**清空** data 回到初始态、不重新请求。登录后刷新列表用前者，登出清理状态用后者。
+
+### Q：为什么服务端渲染时请求内部 API 提示未登录，客户端却正常？
+A：SSR 期间请求由 Nuxt 服务器发出，不会自动携带浏览器 cookie。用 `useRequestFetch()`，或手动 `headers: useRequestHeaders(['cookie'])` 转发即可。
+
+## 小结
+
+- `$fetch`（ofetch）面向动作类请求，`useFetch` 面向渲染类数据，二者分工明确。
+- `$fetch.create` + `onRequest / onRequestError / onResponse / onResponseError` 在插件里封装统一 `$api`。
+- `refreshNuxtData` 重新取数、`clearNuxtData` 清空缓存，保证动作完成后的数据一致性。
+- 错误三层：`createError` → `error.value.data` / `err.data` → `error.vue` 与 `NuxtErrorBoundary` + `clearError`。
+- SSR 转发 cookie：`useRequestFetch()` 或 `useRequestHeaders(['cookie'])`。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-4" target="_blank" rel="noopener">EP.04 数据获取</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 登录表单提交应该用 `useFetch` 还是 `$fetch`？为什么？</b></summary>
+
+`$fetch`（或封装后的 `$api`）。登录是用户动作触发、与首屏渲染无关的请求，不需要水合与缓存语义；在事件回调里反复调用 `useFetch` 还会产生语义与缓存上的混乱。
+
+</details>
+
+<details>
+<summary><b>2. `useFetch('/api/notes/999')` 返回 404，如何在页面里展示服务端给出的「笔记不存在」？</b></summary>
+
+服务端 `createError({ statusCode: 404, statusMessage: '笔记不存在' })` 后，页面读取 `error.value.data.statusMessage`（顶层 `error.value.statusMessage` 同样可用）渲染提示即可。
+
+</details>
+
+<details>
+<summary><b>3. 为什么推荐在插件里用 `$fetch.create` 封装 `$api`，而不是到处裸用 `$fetch`？</b></summary>
+
+baseURL、token 注入、401 跳转、错误日志都在拦截器里统一收口：业务代码更简洁，全站请求行为一致，后续改造（换域名、加签名校验）只需动插件一处。
+
+</details>

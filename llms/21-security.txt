@@ -1,0 +1,206 @@
+# 21. Nuxt 安全实战（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/21-security
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 21. Nuxt 安全实战
+
+> 本章示例：`app/server/middleware/01.security.ts`、`app/server/api/auth/login.post.ts`、`app/utils/sanitize.ts`、`app/nuxt.config.ts`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/login` 与 `http://localhost:3000/notes/1`
+
+## 概念解析
+
+**Nuxt 的全栈形态把攻击面翻了一倍：浏览器端要面对 XSS 与 CSRF，Nitro 服务端要面对注入、爆破与越权，而 SSR 把两侧缝在了一起**。安全设计的起点是分层设防：第一层在 Cookie——会话凭证一律 `httpOnly`（JS 摸不到，XSS 窃不走）、生产加 `Secure`（仅 HTTPS 传输）、`sameSite: 'lax'`（跨站 POST 不携带，这是抗 CSRF 的第一梯队）；第二层在服务端中间件——对所有写操作（POST/PUT/DELETE）做 `Origin` 同源校验，跨站表单与跨站 fetch 在这里就会现形；第三层才是 CSRF token——「双重提交」模式最适合 Nuxt：服务端下发一个**非 httpOnly** 的 `csrf-token` Cookie，前端发写请求时从 Cookie 读出并放进自定义头 `x-csrf-token`，服务端比对两者一致才放行。攻击者能伪造表单让浏览器带上 Cookie，却读不到 Cookie 的值、也就构造不出匹配的头（跨站 JS 受同源策略限制）。
+
+**XSS 的主入口是 `v-html` 与用户可控的 URL/属性绑定**。SSR 场景比纯 SPA 更危险：被注入的 HTML 直接出现在首屏服务端响应里，`<img onerror>` 之类的事件属性无需等 JS 框架接管就会执行。防线的标准组合是「清洗 + CSP」：渲染富文本前用 DOMPurify（SSR 下用 `isomorphic-dompurify`）按白名单砍掉危险标签与属性；CSP 作为兜底，即使清洗漏网，浏览器也会拒绝执行内联脚本。推荐的 CSP 姿势是 **nonce + `strict-dynamic`**：`nuxt-security` 模块给每个响应的合法脚本打上一次性 `nonce`，`strict-dynamic` 让这些可信脚本加载的下游脚本自动获得信任，三方统计/客服 SDK 不用逐个列白名单。
+
+**密钥管理的分水岭是 `runtimeConfig` 的私有键与 `public` 键**。`public` 下的值会序列化进客户端 bundle 与 payload，任何人查看网页源代码即可读到——数据库密码、JWT 签名密钥、第三方 API secret 一旦放错位置就是事故。私有键只在 Nitro 侧通过 `useRuntimeConfig(event)` 读取，生产用 `NUXT_` 前缀环境变量覆盖。同理，`useRequestHeaders()` 全量透传请求头给上游是隐蔽的泄密通道：它可能把本站会话 Cookie、`Authorization` 头一并转发给第三方 API，正确做法是显式白名单 `useRequestHeaders(['cookie'])`、且只在确需 SSR 带态时透传。
+
+**认证的双轨制各解决不同问题**。有状态 Session（Cookie 里的会话 ID + 服务端存储）可即时吊销、实现简单，是同站点 Web 应用的默认推荐；无状态 JWT 不查库即可验签，适合跨服务、移动端的 `Authorization` 头场景。生产上常见的折中是「短寿命 access token（15 分钟）+ httpOnly Cookie 里的 refresh token」，refresh 每次使用即轮换（rotation），旧 token 再次出现即判定被盗、整族会话吊销。无论哪一轨，**认证端点必须配限流**：登录、注册、重置密码按 IP 与账号双维度限频，Nitro 中间件或 `nuxt-security` 的 `rateLimiter` 都能落地，否则前面的密码学设计会被撞库与爆破绕过。
+
+## 典型应用场景
+
+- **登录/注册/重置密码端点**：限流 + zod 入参校验 + `httpOnly`/`Secure`/`sameSite` Cookie 三件套 + refresh token 轮换。
+- **富文本笔记/评论渲染**：`v-html` 之前先过 DOMPurify 白名单清洗，CSP 兜底拦截漏网注入。
+- **接入三方脚本（统计、客服、支付）**：`nuxt-security` 开启 nonce + `strict-dynamic`，拒绝 `unsafe-inline` 开口子。
+- **对外开放 API**：独立路由配 `cors: true` 并维护 origin 白名单，与本站写操作 CSRF 策略分开管理。
+- **多环境密钥**：`runtimeConfig` 私有键存 JWT/OAuth secret，生产用 `NUXT_JWT_SECRET` 注入，同一份产物跑预发与生产。
+- **SSR 请求上游内部服务**：`useRequestHeaders` 白名单透传 `cookie`，绝不透传 `authorization` 给外部域名。
+
+## 完整代码示例
+
+```ts
+// 文件: app/server/middleware/01.security.ts
+// 写操作统一防护：Origin 同源校验 + 双重提交 CSRF token
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+export default defineEventHandler((event) => {
+    if (SAFE_METHODS.has(event.method)) return;
+    const url = getRequestURL(event);
+    // 只保护本站 API；对外开放接口走独立鉴权与 CORS 白名单
+    if (!url.pathname.startsWith('/api/')) return;
+
+    // 第一道：Origin 必须同源，跨站表单/fetch 在此现形
+    const origin = getRequestHeader(event, 'origin');
+    if (origin && origin !== url.origin) {
+        throw createError({ statusCode: 403, statusMessage: 'Origin 校验失败' });
+    }
+
+    // 第二道：双重提交——Cookie 中的 token 必须与自定义头一致
+    const cookieToken = getCookie(event, 'csrf-token');
+    const headerToken = getRequestHeader(event, 'x-csrf-token');
+    if (!cookieToken || cookieToken !== headerToken) {
+        throw createError({ statusCode: 403, statusMessage: 'CSRF token 校验失败' });
+    }
+});
+```
+
+> 运行方式：`npm run dev` 后，在 DevTools 控制台执行 `fetch('/api/notes', { method: 'POST', body: '{}' })` 应收到 403；token 由登录接口（或任意 GET 端点补一行 `setCookie(event, 'csrf-token', crypto.randomUUID(), { sameSite: 'lax' })`，注意**不能**加 `httpOnly`）下发，前端发写请求时从 Cookie 读出并写入 `x-csrf-token` 头即可通过。
+
+```ts
+// 文件: app/server/api/auth/login.post.ts
+// 双轨认证：httpOnly Cookie 里的 refresh token + 15 分钟短寿命 JWT
+import { SignJWT } from 'jose';
+
+export default defineEventHandler(async (event) => {
+    const body = await readBody<{ username?: string; password?: string }>(event);
+    if (body?.username !== 'demo' || body?.password !== 'nuxt1234') {
+        // 报错文案不区分「用户不存在」与「密码错误」，防账号枚举
+        throw createError({ statusCode: 401, statusMessage: '账号或密码错误' });
+    }
+    const { jwtSecret } = useRuntimeConfig(event);
+    const key = new TextEncoder().encode(jwtSecret);
+
+    // 有状态轨：refresh token 放 httpOnly Cookie，XSS 窃不走
+    setCookie(event, 'refresh_token', crypto.randomUUID(), {
+        httpOnly: true,
+        secure: !import.meta.dev, // 生产强制 HTTPS 传输
+        sameSite: 'lax',          // 抗 CSRF 第一梯队
+        path: '/api/auth',        // 缩小携带范围，减少暴露面
+        maxAge: 60 * 60 * 24 * 7
+    });
+
+    // 无状态轨：短寿命 JWT，供移动端/跨服务的 Authorization 头使用
+    const accessToken = await new SignJWT({ sub: 'demo' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setExpirationTime('15m')
+        .sign(key);
+
+    return { accessToken, user: { name: 'demo' } };
+});
+```
+
+> 运行方式：访问 `http://localhost:3000/login` 用 `demo / nuxt1234` 登录，DevTools Application 面板可见 `refresh_token` Cookie 带 `HttpOnly` 标记；响应体里的 `accessToken` 供无状态场景使用。
+
+```ts
+// 文件: app/utils/sanitize.ts
+// 富文本清洗：只允许排版所需的最小标签/属性集合
+// isomorphic-dompurify 在服务端用 jsdom、浏览器用原生 DOM，SSR 两侧行为一致
+import DOMPurify from 'isomorphic-dompurify';
+
+export function sanitizeHtml(dirty: string): string {
+    return DOMPurify.sanitize(dirty, {
+        ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'a', 'h2', 'h3', 'blockquote'],
+        ALLOWED_ATTR: ['href', 'target', 'rel'],
+        // 外链强制新窗口且断开 window.opener，防反向标签劫持
+        ADD_ATTR: ['target', 'rel']
+    });
+}
+```
+
+> 运行方式：在 `app/pages/notes/[id].vue` 中把 `<div v-html="note.content">` 改为 `<div v-html="sanitizeHtml(note.content)">`（`utils/` 下函数自动导入），用含 `<script>alert(1)</script>` 的笔记内容验证注入被清除。
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    modules: ['@pinia/nuxt', 'nuxt-security'],
+    runtimeConfig: {
+        // 私有键：仅 Nitro 侧可读，绝不进入客户端 bundle
+        jwtSecret: 'dev-only-secret',
+        public: {
+            siteName: 'Nuxt LearnHub'
+        }
+    },
+    security: {
+        nonce: true, // 每个响应生成一次性 nonce，合法内联脚本才能执行
+        headers: {
+            contentSecurityPolicy: {
+                'default-src': ["'self'"],
+                // strict-dynamic：被 nonce 信任的脚本可再加载下游脚本，免逐个列三方域名
+                'script-src': ["'self'", "'strict-dynamic'"],
+                'style-src': ["'self'", "'unsafe-inline'"],
+                'img-src': ["'self'", 'data:'],
+                'object-src': ["'none'"],
+                'base-uri': ["'self'"]
+            },
+            strictTransportSecurity: 'max-age=31536000; includeSubDomains',
+            xContentTypeOptions: 'nosniff',
+            referrerPolicy: 'strict-origin-when-cross-origin'
+        },
+        rateLimiter: {
+            tokensPerInterval: 150, // 5 分钟 150 次，超出返回 429
+            interval: 300000
+        }
+    },
+    devtools: { enabled: true },
+    compatibilityDate: '2025-07-15'
+});
+```
+
+> 运行方式：`npm install nuxt-security` 后 `npm run dev`，DevTools Network 面板检查任意响应头可见 `content-security-policy` 与 `strict-transport-security`；DevTools Console 中尝试注入内联脚本会被浏览器拦截并报告 CSP 违规。
+
+## 最佳实践
+
+1. **默认不信任任何输入**：URL 参数、请求体、请求头、富文本全部视为攻击面——写接口用 zod 校验 body，渲染富文本前过 DOMPurify，跳转参数防 `javascript:` 伪协议。
+2. **Cookie 三件套一次写全**：会话 Cookie 必须 `httpOnly` + 生产 `Secure` + `sameSite: 'lax'`（或 `strict`）；任何「先跑起来再说」的简化都会变成线上事故。
+3. **私有键永远不进 `public`**：`runtimeConfig.public` 会序列化进客户端，密钥泄露事故九成源于此；code review 时把 `public` 块当高危区逐行看。
+4. **CSP 用 nonce 而非 `unsafe-inline`**：`nuxt-security` 自动注入并轮转 nonce，三方脚本交给 `strict-dynamic` 传递信任，不为一时省事开全局内联口子。
+5. **认证端点限流按「IP + 账号」双维度**：仅按 IP 限流会被代理池绕过，仅按账号限流会被用来锁死受害者；报错文案统一，不泄露账号是否存在。
+6. **透传请求头一律白名单**：`useRequestHeaders(['cookie'])` 只取所需，且只发给可信上游；对外部第三方 API 用独立的凭证体系，绝不转发本站会话。
+
+## 常见问题
+
+### Q：JWT 到底放 `localStorage` 还是 Cookie？
+
+A：放 `localStorage` 的 token 任何一次 XSS 都能被整锅端走；放 `httpOnly` Cookie 则 XSS 窃不走、但要面对 CSRF（用 SameSite + Origin 校验 + token 三道防）。同站点 Web 应用推荐 httpOnly Cookie；跨域 SPA/移动端不得不用 `Authorization` 头时，接受 XSS 风险并配短寿命 + refresh 轮换降低损失。
+
+### Q：`sameSite: 'lax'` 已经能挡 CSRF，为什么还要 Origin 校验与 token？
+
+A：`lax` 只挡跨站 POST 等写请求，不挡跨站 GET；且旧浏览器、子域名被攻陷（`lax` 对同站子域名放行）、`sameSite: 'none'` 的第三方嵌入场景都会留下缺口。纵深防御的意义就是任何单层失效都不致命。
+
+### Q：开启 CSP 后内联脚本全部报错，页面白屏怎么办？
+
+A：不要退回 `unsafe-inline`。用 `nuxt-security` 的 nonce 模式：模块会给 Nuxt 自身的内联引导脚本自动打 nonce，剩余报错逐项排查——自己的内联脚本挪进 `.ts` 文件，三方脚本靠 `strict-dynamic` 由可信脚本间接加载。
+
+### Q：`useRequestHeaders()` 不传参数全量透传有什么坑？
+
+A：它会把浏览器发来的所有头（含 `cookie`、`authorization`）原样转发给你请求的上游。若上游是第三方服务，等于把本站用户会话拱手送出；若上游会根据 `host`/`x-forwarded-host` 生成链接，还可能引入 Host 头注入。务必传白名单数组。
+
+## 小结
+
+- 写操作三层设防：SameSite Cookie 打底，Origin 同源校验抓跨站请求，双重提交 token 兜底。
+- XSS 组合技：DOMPurify 白名单清洗 + nonce 化 CSP（`strict-dynamic` 兼容三方脚本），`v-html` 前先过 `sanitizeHtml`。
+- 密钥纪律：`runtimeConfig` 私有键只在服务端读、`public` 永不放 secret、`useRequestHeaders` 白名单透传。
+- 认证双轨：httpOnly Cookie Session（同站）与短寿命 JWT + refresh 轮换（跨端），认证端点必配双维度限流。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】为什么 CSRF 双重提交模式里，存 token 的 Cookie 恰恰不能设 `httpOnly`？</b></summary>
+
+前端 JS 需要读出 Cookie 里的 token 并写进 `x-csrf-token` 自定义头，`httpOnly` 会阻止 JS 读取导致模式失效。安全前提是：这个 Cookie 本身不是会话凭证（被偷无用），攻击者无法在自己的域里读到目标站 Cookie 的值，也就伪造不出一致的头。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】SSR 应用中 `v-html` 渲染用户内容，为什么比纯 SPA 更需要 DOMPurify 清洗？</b></summary>
+
+SSR 把注入的 HTML 直接写进首屏响应，`<img onerror>` 这类事件属性在框架水合之前就会被浏览器执行，攻击不依赖任何 JS 框架时机；同时恶意内容还会进入 payload 序列化通道。清洗必须在服务端渲染前完成（用 `isomorphic-dompurify` 保证两侧一致），CSP 作为第二道防线拦截漏网之鱼。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】refresh token 轮换机制如何检测「token 已被盗用」？检测到时该怎么处理？</b></summary>
+
+每次用 refresh token 换发新 access token 时，同时签发**新的** refresh token 并令旧 token 立即失效（服务端记录已轮换的 token 族）。若某个已失效的旧 token 被再次使用，说明它与新 token 必有一方在攻击者手中——判定该会话族被盗，吊销整族所有 token 并强制重新登录。这样攻击者与正常用户必有一方很快掉线，盗用窗口被压缩到一次轮换周期内。
+
+</details>

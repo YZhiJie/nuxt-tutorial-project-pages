@@ -1,0 +1,266 @@
+# 26. Nitro 内核：事件、中间件、存储与边缘边界（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/26-nitro-internals
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 26. Nitro 内核：事件、中间件、存储与边缘边界
+
+> 本章示例：`app/server/api/realtime/sse.get.ts`、`app/server/middleware/*.ts`、`app/server/utils/notes/repository.ts`、`app/nuxt.config.ts`
+> 运行方式：`cd app && npm run dev`，或先 `npm run build` 再 `node .output/server/index.mjs`
+
+## 现象与问题
+
+### 现象 1：SSE 在本地逐条到达，放到 Nginx 后面「一次性全部到达」
+
+本地 `curl -N http://localhost:3000/api/realtime/sse` 能看到每 1.5 秒一条 `event: tick`；套上 Nginx/网关后，客户端几十秒才收到一整段。协议本身没坏，是中间层缓冲了 `text/event-stream`。项目里的 handler 已经做了三件事：设置 `Content-Type: text/event-stream`、`Cache-Control: no-cache, no-transform`、`X-Accel-Buffering: no`，并调用 `res.flushHeaders()`。少任何一项，Nginx/网关都可能攒包。
+
+### 现象 2：`/api/admin/**` 的 401 没有访问日志，也没有 `x-request-id`
+
+`server/middleware/` 下有三个文件：`auth.ts`、`logger.ts`、`observability.ts`。未登录访问 `/api/admin/stats` 返回 401，但 stdout 里没有 `[server]` 行，也没有观测中间件的 JSON 日志，响应头也没有 `x-request-id`。原因是 Nitro 按文件名字典序注册中间件，`auth` 排在 `logger` / `observability` 之前；`auth` 抛错后，后面的中间件不会执行。**鉴权失败恰恰是最需要观测的请求之一**，这是顺序带来的盲区。
+
+### 现象 3：接口加了 `cache-control`，但重复请求仍然打到了处理器
+
+`server/api/rendering/catalog.get.ts` 只设置了 `cache-control: public, s-maxage=60`，这是给 CDN/浏览器看的响应头；它**不会**让 Nitro 自己缓存。真正让 Nitro 在服务端缓存的是 `routeRules` 的 `cache`/`swr`，或显式 `defineCachedEventHandler()`。两者混用会造成「以为缓存了，其实每次都在算」。
+
+### 现象 4：同一份代码部署到 Cloudflare Pages 后，Node API 不可用
+
+`server/middleware/observability.ts` 使用 `node:crypto` 的 `randomUUID()`，`nuxt.config.ts` 的存储驱动是 `fs`，`server/api/security/rate-limit.get.ts` 用进程内 `Map` 做限流。这些在 Node 服务器上没问题，到 workerd 运行时就会遇到 `node:` 模块兼容、无文件系统、实例间不共享内存三类边界。
+
+## 源码定位
+
+### 事件对象：h3 event 是「请求 + 响应 + 上下文」的包装
+
+Nitro 用 h3 的 `createApp()` 与 `toNodeListener()` 把 Node 的 `req`/`res` 包成 `H3Event`，入口在 `nitropack/dist/runtime/internal/app.mjs` 的 `createNitroApp()`。它给每个请求挂了这些能力：
+
+```ts
+event.context.nitro = event.context.nitro || { errors: [] };
+event.fetch = (req, init) => fetchWithEvent(event, req, init, { fetch: localFetch });
+event.$fetch = (req, init) => fetchWithEvent(event, req, init, { fetch: $fetch });
+event.waitUntil = (promise) => { /* 收集到 context.nitro._waitUntilPromises */ };
+event.captureError = (error, context) => captureError(error, { event, ...context });
+```
+
+`event.node.req` / `event.node.res` 是逃生口：SSE 端点 `app/server/api/realtime/sse.get.ts` 直接用 `res.flushHeaders()`、`res.write()`、`res.on('close')`，并在 handler 末尾 `await` 一个只在连接关闭时才 resolve 的 Promise。它必须挂起，否则 Nitro 会认为响应结束并提前收尾。
+
+事件流的关键不是「一直 `res.write`」，而是**监听连接关闭并清理定时器**。该文件同时监听 `res` 与 `req` 的 `close`，用 `closed` 标记保证 `cleanup()` 幂等；否则客户端断开后 `setInterval` 仍在跑，最终变成内存泄漏。
+
+### 中间件顺序：`h3App.use()` 的调用顺序就是执行顺序
+
+Nitro 不按「目录层级」执行中间件，而是把所有 handler 拍平成一个数组，然后按数组顺序注册。构建产物 `.output/server/chunks/nitro/nitro.mjs` 中可以直接看到：
+
+```ts
+const handlers = [
+  { route: '', handler: _pUhabe, middleware: true }, // Nitro 内置静态资源
+  { route: '', handler: _63etIJ, middleware: true }, // server/middleware/auth.ts
+  { route: '', handler: _8X_qup, middleware: true }, // server/middleware/logger.ts
+  { route: '', handler: _Bn8ZkO, middleware: true }, // server/middleware/observability.ts
+  // ...文件路由
+];
+```
+
+`createNitroApp()` 的注册逻辑是：
+
+```ts
+for (const h of handlers) {
+  if (h.middleware || !h.route) h3App.use(middlewareBase, handler);
+  else router.use(h.route, handler, h.method);
+}
+h3App.use(config.app.baseURL, router.handler);
+```
+
+所以：
+
+- 中间件先于所有路由执行，顺序由 `handlers` 数组决定；
+- 中间件抛错会中断链，后续中间件与路由都不再执行；
+- 想让观测覆盖鉴权失败，观测中间件必须排在鉴权之前（例如把文件名改成 `00-observability.ts`，或把观测逻辑放进 Nitro 插件的 `request` hook）。
+
+### hook 生命周期：插件在启动时执行，请求 hook 按阶段触发
+
+`createNitroApp()` 用 `createHooks()` 建立 hook 总线，并在 h3 的生命周期里调用：
+
+```ts
+onRequest:        await nitroApp.hooks.callHook('request', event)
+onBeforeResponse: await nitroApp.hooks.callHook('beforeResponse', event, response)
+onAfterResponse:  await nitroApp.hooks.callHook('afterResponse', event, response)
+```
+
+`captureError()` 则并行调用 `error` hook。`runNitroPlugins(nitroApp)` 在模块加载阶段执行一次，插件函数本身不是「每请求执行」，而是**注册 hook**：
+
+```ts
+export default defineNitroPlugin((nitroApp) => {
+  nitroApp.hooks.hook('request', (event) => { /* 每请求 */ });
+  nitroApp.hooks.hook('afterResponse', (event) => { /* 响应后 */ });
+});
+```
+
+项目里的 `server/middleware/observability.ts` 是中间件方案，`server/plugins` 若存在则可用插件方案；两者都能做观测，但中间件会受顺序影响，插件 hook 不会。
+
+### storage 与缓存驱动：`useStorage()` 只是 unstorage 的前缀包装
+
+`nitropack/dist/runtime/internal/storage.mjs` 的实现非常薄：
+
+```ts
+import { prefixStorage } from 'unstorage';
+import { storage } from '#nitro-internal-virtual/storage';
+export function useStorage(base = '') {
+  return base ? prefixStorage(storage, base) : storage;
+}
+```
+
+真正的驱动来自构建期生成的虚拟模块，驱动配置在 `app/nuxt.config.ts`：
+
+```ts
+nitro: {
+  storage: { data: { driver: 'fs', base: './.data/kv' } },
+}
+```
+
+所以 `server/utils/notes/repository.ts` 里的 `useStorage('data')` 实际读写的是 `app/.data/kv/notes`。换成 Redis、Cloudflare KV、S3，只需要换 `driver` 与绑定配置，业务代码不用改。
+
+缓存接口在 `nitropack/dist/runtime/internal/cache.mjs` 的 `defineCachedFunction()`：
+
+- 默认 `swr: true`、`maxAge: 1`；
+- key 由 `[base, group, name, key + '.json']` 拼成，默认 base 是 `/cache`；
+- `integrity = hash([fn, opts])`，函数或参数变化会让旧缓存失效；
+- `pending[key]` 只在当前进程内去重，多实例不共享。
+
+`routeRules.cache` 在 `createNitroApp()` 里被包成 `cachedEventHandler(handler, { group: 'nitro/routes', ...routeRules.cache })`。因此页面级的 SWR 与接口里的 `cache-control` 是两套机制，不能互相替代。
+
+### tasks：扫描目录是构建期，执行入口在开发服务器
+
+`nitropack/dist/core/index.mjs` 的 `scanAndSyncOptions()` 在 `experimental.tasks` 为真时扫描 `tasks/` 目录：
+
+```ts
+if (nitro.options.experimental.tasks) {
+  const scannedTasks = await scanTasks(nitro);
+  for (const scannedTask of scannedTasks) { /* 写入 nitro.options.tasks */ }
+}
+```
+
+`runTask()` 的实现是：
+
+```ts
+const result = await ctx.devFetch(`/_nitro/tasks/${taskEvent.name}`, { method: 'POST', body: taskEvent });
+```
+
+也就是说，`runTask` 依赖开发服务器暴露的 `/_nitro/tasks` 端点，**生产进程不会自动帮你跑任务**。定时执行要靠 `scheduledTasks` 配合平台 cron，或外部队列/定时器调用你的接口。
+
+### preset：同一份 Nitro 代码，不同运行时入口
+
+`nitropack/dist/presets/node/preset.mjs` 定义了 `node-listener` 与 `node-server`：
+
+```ts
+const nodeServer = defineNitroPreset({
+  extends: 'node',
+  entry: './runtime/node-server',
+  serveStatic: true,
+  commands: { preview: 'node {{ output.serverDir }}/index.mjs' },
+}, { name: 'node-server', url: import.meta.url });
+```
+
+`nitropack/dist/presets/cloudflare/preset.mjs` 的 `cloudflare-pages` 则是：
+
+```ts
+const cloudflarePages = defineNitroPreset({
+  extends: 'cloudflare',
+  entry: './runtime/cloudflare-pages',
+  exportConditions: ['workerd'],
+  unenv: [unenvCfExternals],
+  output: { serverDir: '{{ output.dir }}/_worker.js' },
+  commands: { preview: 'npx wrangler --cwd {{ output.dir }} pages dev' },
+}, { name: 'cloudflare-pages', url: import.meta.url });
+```
+
+差异不只在入口：`exportConditions` 决定依赖解析到 `workerd` 版本，`unenv` 把 Node 内置模块替换成 polyfill，`output` 决定产物是 `index.mjs` 还是 `_worker.js`。这解释了为什么 `fs` 驱动、`node:crypto`、长连接 SSE 在边缘平台上需要逐项确认。
+
+## 最小实验
+
+### 1. 观察 SSE 是逐条还是一次性
+
+```bash
+cd app
+npm run dev
+# 另开终端，-N 关闭 curl 自己的缓冲
+curl -N http://localhost:3000/api/realtime/sse
+```
+
+应每隔约 1.5 秒看到一条 `event: tick` 与递增的 `count`；每 10 条出现一次 `: heartbeat` 注释。若你把 `X-Accel-Buffering: no` 或 `res.flushHeaders()` 去掉，再套一层会缓冲的代理，就能复现「一次性到达」。
+
+### 2. 验证中间件顺序与观测盲区
+
+```bash
+curl -i http://localhost:3000/api/admin/stats          # 未登录：401，无 x-request-id
+curl -i http://localhost:3000/api/observability/echo   # 公开：200，有 x-request-id
+```
+
+第一条只经过 `auth` 就抛错，`logger` / `observability` 未执行；第二条能看到 `x-request-id` 与 JSON 访问日志。这个差异就是「顺序决定覆盖面」的直接证据。
+
+### 3. 验证 storage 落盘
+
+```bash
+curl -sS -X POST http://localhost:3000/api/notes \
+  -H 'content-type: application/json' \
+  -d '{"title":"Nitro storage check","content":"chapter 26"}'
+cat app/.data/kv/notes
+```
+
+`useStorage('data')` 前缀 + `fs` 驱动把整份数组写到 `notes` 文件；重启进程后数据仍在，说明它绕开了进程内存。把驱动换成 Redis 后，同一段 repository 代码不需要改。
+
+### 4. 观察 hook 与启动插件
+
+在 `app/server/plugins/` 新建一个最小插件（该目录会被 Nitro 自动扫描）：
+
+```ts
+export default defineNitroPlugin((nitroApp) => {
+  console.info('[hook-demo] plugin registered');
+  nitroApp.hooks.hook('request', (event) => {
+    console.info('[hook-demo] request', event.method, getRequestURL(event).pathname);
+  });
+  nitroApp.hooks.hook('afterResponse', (event) => {
+    console.info('[hook-demo] afterResponse', event.node.res.statusCode);
+  });
+});
+```
+
+`npm run dev` 启动时应看到一次 `plugin registered`；每次请求看到 `request` 与 `afterResponse` 两行。插件只在启动时执行一次，真正「每请求」的是 hook 回调。
+
+### 5. tasks 的正确用法
+
+```ts
+// app/server/tasks/cleanup-notes.ts
+export default defineTask({
+  meta: { name: 'cleanup-notes', description: '清理过期笔记' },
+  async run() {
+    return { result: 'ok', at: new Date().toISOString() };
+  },
+});
+```
+
+在 `app/nuxt.config.ts` 打开 `nitro.experimental.tasks = true` 后，用 `npm run dev` 启动，再请求 `/_nitro/tasks` 查看任务清单。把它当成「开发/运维工具」，不要假设生产进程会自动执行；生产定时要靠 `scheduledTasks` + 平台 cron，或独立 worker。
+
+## 生产取舍
+
+| 取舍点 | 建议 | 原因 |
+| --- | --- | --- |
+| 直接用 `event.node.res` vs h3 响应 API | 普通 JSON 用 h3；SSE/流式才下探 Node 层 | 下探后要自己处理关闭、清理与错误，容易泄漏 |
+| 中间件 vs Nitro 插件 hook | 横切观测优先插件 hook；路由级守卫可用中间件 | 中间件受文件名字典序影响，抛错会截断后续链路 |
+| `cache-control` vs routeRules cache | CDN 缓存用响应头；Nitro 服务端缓存用 `routeRules.cache` / `defineCachedEventHandler` | 两者层级不同，不能互相替代 |
+| 进程内 Map vs 外部存储 | 限流、会话、任务锁必须外部化 | 多实例/多 isolate 不共享内存，重启即丢 |
+| Node preset vs 边缘 preset | 先按部署平台选 preset，再决定可用的 Node API | preset 决定 `exportConditions`、`unenv` 与产物形态 |
+| `runTask` vs 平台 cron | 开发期用 `runTask`，生产用平台调度 | `runTask` 依赖 dev server 的 `/_nitro/tasks` 端点 |
+
+边缘部署的边界可以压缩成一张检查表：
+
+1. **文件系统**：`fs` 驱动不可用，改用平台 KV/对象存储绑定；
+2. **Node 内置模块**：`node:crypto`、`node:fs`、`node:stream` 要确认 `unenv` 是否覆盖，必要时改用 Web Crypto；
+3. **长连接**：SSE/WebSocket 受平台连接时长与并发限制，必要时改成轮询或使用平台的 Durable Objects / 专用长连接服务；
+4. **进程内状态**：限流桶、缓存 `pending`、指标计数器都会随实例/isolate 重置；
+5. **环境变量**：边缘运行时优先 `runtimeConfig`，不要在请求路径里读 `process.env`；
+6. **静态资源**：`node-server` 的 `serveStatic: true` 在边缘由平台负责，别自己写文件服务。
+
+## 评审题
+
+1. 你的 SSE 接口在本地正常，K8s 前面加了 Ingress 后变成整段返回。列出至少三个可能原因，并指出哪一个能在本仓库的 `sse.get.ts` 里找到对应代码。
+2. 未登录访问受保护接口没有 `x-request-id`。请画出当前中间件顺序，并给出两种修复方案（一种不改文件名，一种改文件名），各自的影响是什么？
+3. `routeRules: { '/rendering/isr': { swr: 60 } }` 与接口里 `setResponseHeader('cache-control', 'public, s-maxage=60')` 分别由谁执行缓存？如果两者都写，会发生什么？
+4. 把 `fs` 存储驱动换成 Cloudflare KV，需要改哪些层？请按「配置 → 驱动 → 业务代码 → 测试」的顺序说明。
+5. 设计一个「每分钟清理过期笔记」的生产任务：在 Node 单实例、K8s 多副本、Cloudflare Workers 三种环境下，各应该用什么机制保证只执行一次？`runTask` 在哪些环境下不适用？

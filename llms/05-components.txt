@@ -1,0 +1,213 @@
+# 05. 组件开发与自动导入（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/05-components
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 05. 组件开发与自动导入
+
+> 本章示例：`app/components/NoteCard.vue`、`app/components/CounterBox.vue`、`app/components/AppHeader.vue`、`app/pages/playground.vue`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/playground`
+
+## 概念解析
+
+Nuxt 4 约定 `app/components/` 目录下的所有 `.vue` 文件都会被自动注册：构建时 Nuxt 扫描该目录并生成虚拟模块 `#components` 与对应类型声明，因此在页面、布局或其他组件的模板里可以直接写 `<NoteCard />`，一行 `import` 都不用写。组件是按需注入的——只有模板真正用到的组件才会进入产物，没有全局注册带来的体积浪费。
+
+目录嵌套时，组件名会自动带上路径前缀并整体转为 PascalCase，例如 `app/components/note/Card.vue` 的组件名是 `<NoteCard />`。这一约定既避免了重名冲突，也让组件出处一目了然，这也是示例项目用 `components/NoteCard.vue`、`components/AppHeader.vue` 这类扁平命名的原因。
+
+对于首屏不需要的重型组件（图表、富文本编辑器），Nuxt 提供 `Lazy` 前缀：`<LazyCounterBox />` 会把组件拆成独立 chunk，首次真正渲染时才请求下载。反过来，依赖 `window`、canvas 等浏览器能力的纯客户端组件，可用内置的 `<ClientOnly>` 包裹——服务端只输出 `fallback` 占位，水合后再替换为真实组件。此外还有更激进的「组件岛」：以 `.server.vue` 结尾的服务端组件只在服务端渲染、输出静态 HTML，不下发任何客户端 JS，本章仅作了解。
+
+## 典型应用场景
+
+- **展示型组件**：NoteCard 接收 `note` 对象渲染标题、摘要与标签，`defineProps<T>()` 给出完整类型提示。
+- **受控交互组件**：CounterBox 通过 `v-model` + `defineEmits` 与父组件通信，状态留在使用方，复用性最好。
+- **壳组件与插槽**：AppHeader 用具名插槽把 logo 区、操作区开放给布局，用作用域插槽向父级透出内部数据。
+- **性能优化**：首屏外组件加 `Lazy` 前缀；浏览器专属组件用 `ClientOnly` 隔离，避免 SSR 报错。
+- **动态渲染**：根据路由或数据动态切换组件时使用 `<component :is>`，组件构造从 `#components` 显式导入。
+
+## 完整代码示例
+
+```vue
+<!-- 文件: app/components/NoteCard.vue -->
+<script setup lang="ts">
+    import type { Note } from '#shared/types/note'
+
+    // withDefaults 为可选 props 提供默认值，TS 项目推荐此写法
+    const props = withDefaults(
+        defineProps<{
+            note: Note
+            compact?: boolean
+        }>(),
+        { compact: false }
+    )
+</script>
+
+<template>
+    <article class="note-card" :class="{ compact: props.compact }">
+        <h3>
+            <NuxtLink :to="`/notes/${props.note.id}`">{{ props.note.title }}</NuxtLink>
+        </h3>
+        <p v-if="!props.compact">{{ props.note.excerpt }}</p>
+        <ul class="tags">
+            <li v-for="tag in props.note.tags" :key="tag">{{ tag }}</li>
+        </ul>
+        <!-- formatDate 来自 app/utils/format.ts，同样自动导入 -->
+        <time>{{ formatDate(props.note.createdAt) }}</time>
+    </article>
+</template>
+```
+> 运行方式：`cd app && npm install && npm run dev`，访问 `http://localhost:3000/` 查看 NoteCard 列表渲染效果。
+
+```vue
+<!-- 文件: app/components/CounterBox.vue -->
+<script setup lang="ts">
+    const props = withDefaults(defineProps<{ modelValue: number; step?: number }>(), { step: 1 })
+
+    // 用类型化签名声明事件：父组件 v-model / @changed 均有类型检查
+    const emit = defineEmits<{
+        'update:modelValue': [value: number]
+        changed: [value: number]
+    }>()
+
+    function bump(delta: number) {
+        const next = props.modelValue + delta * props.step
+        emit('update:modelValue', next)
+        emit('changed', next)
+    }
+</script>
+
+<template>
+    <div class="counter-box">
+        <button type="button" @click="bump(-1)">-</button>
+        <strong>{{ props.modelValue }}</strong>
+        <button type="button" @click="bump(1)">+</button>
+    </div>
+</template>
+```
+> 运行方式：访问 `http://localhost:3000/playground` ，操作计数器并在控制台观察 `changed` 事件输出。
+
+```vue
+<!-- 文件: app/components/AppHeader.vue -->
+<script setup lang="ts">
+    const title = 'Nuxt LearnHub'
+</script>
+
+<template>
+    <header class="app-header">
+        <!-- 作用域插槽：把内部 title 透出给使用方 -->
+        <slot name="logo" :title="title">
+            <NuxtLink to="/" class="logo">{{ title }}</NuxtLink>
+        </slot>
+        <nav class="main-nav">
+            <!-- 默认插槽：放主导航链接 -->
+            <slot />
+        </nav>
+        <div class="actions">
+            <!-- 具名插槽：右侧操作区 -->
+            <slot name="actions" />
+        </div>
+    </header>
+</template>
+```
+> 运行方式：该组件被 `app/layouts/default.vue` 使用，访问任意页面即可看到页头效果。
+
+```vue
+<!-- 文件: app/pages/playground.vue -->
+<script setup lang="ts">
+    // 动态组件必须拿到组件构造：从 #components 显式导入
+    import { AppFooter, NoteCard } from '#components'
+    import type { Note } from '#shared/types/note'
+
+    const route = useRoute()
+    const count = ref(0)
+
+    const demoNote: Note = {
+        id: 1,
+        title: '组件系统速览',
+        excerpt: '自动导入、props/emits/slots 与懒加载',
+        content: '',
+        tags: ['nuxt4', 'component'],
+        createdAt: '2025-07-15T00:00:00.000Z'
+    }
+
+    // 根据 ?view= 动态切换渲染的组件
+    const current = computed(() => (route.query.view === 'footer' ? AppFooter : NoteCard))
+</script>
+
+<template>
+    <main>
+        <!-- 自动导入：模板里直接使用，无需 import -->
+        <CounterBox v-model="count" :step="2" @changed="(v: number) => console.log('changed:', v)" />
+
+        <!-- Lazy 前缀：首次渲染时才下载组件 chunk -->
+        <LazyNoteCard v-if="count >= 3" :note="demoNote" compact />
+
+        <!-- 纯客户端组件：SSR 阶段只输出 fallback -->
+        <ClientOnly>
+            <p>本机时间：{{ new Date().toLocaleString() }}</p>
+            <template #fallback>
+                <p>时间加载中…</p>
+            </template>
+        </ClientOnly>
+
+        <!-- 动态组件：:is 接收组件构造（未声明的 props 会作为 attrs 透传） -->
+        <component :is="current" :note="demoNote" />
+    </main>
+</template>
+```
+> 运行方式：访问 `http://localhost:3000/playground` 与 `http://localhost:3000/playground?view=footer` ，对比动态组件切换效果。
+
+## 最佳实践
+
+1. **组件一律放进 `app/components/` 并依赖自动导入**：手写 import 不仅冗余，还会绕过 Nuxt 的按需注入与类型生成。
+2. **props 用 `defineProps<T>()` + `withDefaults` 的类型写法**：比运行时 `props: { ... }` 声明获得更好的类型推断与重构支持。
+3. **`defineEmits` 必须显式声明**：事件名与载荷类型写清楚，父组件 `@xxx` 才有类型检查，组件接口也自成文档。
+4. **首屏外的重组件加 `Lazy` 前缀**：编辑器、图表等拆成异步 chunk，显著降低首屏 JS 体积。
+5. **浏览器专属组件用 `ClientOnly` 隔离并提供 fallback**：避免 SSR 期间访问 `window` 报错，同时保证水合一致。
+6. **动态组件从 `#components` 导入构造再传给 `:is`**：自动导入的组件没有全局字符串注册表，直接传字符串名解析不到。
+
+## 常见问题
+
+### Q：模板里写了组件却没有任何渲染，也不报错？
+A：先确认文件在 `app/components/` 下且以 `.vue` 结尾；再检查模板中的标签名是否等于「目录前缀 + 文件名」的 PascalCase 结果（嵌套目录最容易漏掉前缀）。改过目录结构后重启 dev server，让组件扫描结果重新生成。
+
+### Q：嵌套目录导致组件名太长怎么办？
+A：路径前缀是刻意设计，能防止同名组件冲突，建议保留；若确实想去掉，可在 `nuxt.config.ts` 的 `components` 选项中对特定目录配置 `pathPrefix: false`，但需自行承担重名风险。
+
+### Q：`LazyXxx` 与 `Xxx` 的 props、事件有区别吗？
+A：没有。`Lazy` 前缀只改变加载时机（首次渲染才下载 chunk），组件的 props、emits、插槽用法完全一致，二者可随时互换。
+
+### Q：`<component :is>` 传字符串组件名为什么不生效？
+A：自动导入的组件并未全局注册，运行时没有「字符串 → 组件」的映射表。请从 `#components` 导入组件构造，把构造（或包装它的 computed）赋给 `:is`。
+
+## 小结
+
+- `app/components/` 自动导入，嵌套目录会生成 PascalCase 路径前缀组件名。
+- `defineProps` / `defineEmits` / 插槽（具名 + 作用域）是组件通信三件套，全部支持类型化。
+- `Lazy` 前缀解决「晚点加载」，`ClientOnly` 解决「只在客户端渲染」，二者方向相反、不要混淆。
+- 动态组件配 `#components` 显式导入；`.server.vue` 组件岛只输出 HTML、不下发客户端 JS。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-3" target="_blank" rel="noopener">EP.03 组件与布局</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. `app/components/note/Card.vue` 在模板里对应的组件名是什么？</b></summary>
+
+`<NoteCard />`。目录段与文件名拼接后整体转 PascalCase：note → Note、Card → Card。
+
+</details>
+
+<details>
+<summary><b>2. 一个只有点击「展开高级筛选」才会用到的重组件，如何避免拖慢首屏？</b></summary>
+
+使用 `Lazy` 前缀（如 `<LazyFilterPanel />`）并配合 `v-if` 控制渲染时机：组件 chunk 在首次渲染时才下载，不影响首屏体积与加载。
+
+</details>
+
+<details>
+<summary><b>3. 在 `&lt;component :is&gt;` 中动态渲染自动导入的组件，正确做法是什么？</b></summary>
+
+从 `#components` 显式导入组件构造（如 `import { NoteCard } from '#components'`），将构造赋给 `:is`；直接传字符串组件名无法被解析。
+
+</details>

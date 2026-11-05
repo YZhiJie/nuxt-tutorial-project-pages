@@ -1,0 +1,164 @@
+# 16. 部署上线全攻略（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/16-deploy
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 16. 部署上线全攻略
+
+> 本章示例：`app/nuxt.config.ts`、`Dockerfile`、`.github/workflows/deploy.yml` 等
+> 运行方式：`cd app && npm install && npm run build && node .output/server/index.mjs`（自托管）；静态路径用 `npm run generate`
+
+## 概念解析
+
+**Nuxt 应用的部署形态由 Nitro preset 决定，同一份代码有三条主流路径**。路径一：**Node 自托管**——默认 `node-server` 预设，`nuxi build` 之后 `node .output/server/index.mjs` 就是一个完整生产服务（页面 SSR + API 路由 + 静态资源全包），端口与监听地址用 `NITRO_PORT`/`NITRO_HOST` 环境变量控制；生产上配 PM2 做进程守护，或打进 Docker 镜像交给容器平台。这条路径能力最全，适合有服务端 API、需要 ISR/SWR 的项目。
+
+路径二：**纯静态托管**——`nuxi generate` 预渲染出 `.output/public/` 一目录静态文件，丢给 Nginx、对象存储（OSS/COS/S3 + CDN）或 GitHub Pages 皆可，零服务器运维。注意部署到「项目站」子路径（如 `https://user.github.io/repo/`）时，要设置 `app.baseURL` 为 `/repo/`，否则资源链接全部 404。路径三：**Serverless/边缘**——Nitro 为 vercel、netlify、cloudflare-pages 等平台内置预设，这些平台大多能自动识别 Nuxt 项目实现「零配置」部署，特殊场景用 `NITRO_PRESET=cloudflare-pages` 之类的环境变量显式指定，构建产物自动适配该平台的函数/边缘运行时。
+
+**环境变量与 `runtimeConfig` 是生产配置的正解**。`nuxt.config.ts` 里的 `runtimeConfig` 只是默认值：运行时可用 `NUXT_` 前缀环境变量覆盖——私有键 `apiSecret` 对应 `NUXT_API_SECRET`，`public` 下的 `siteName` 对应 `NUXT_PUBLIC_SITE_NAME`。关键区别在于「构建时 vs 运行时」：runtimeConfig 的覆盖发生在**服务启动那一刻**（运行时），同一个构建产物可以带着不同环境变量跑在预发/生产两套环境；这正是「一次构建、多处部署」的基础。最后，**CI/CD 把质量关卡自动化**：GitHub Actions 里 checkout → setup-node → `npm ci` → `typecheck` → `test` → `build` → 部署，每一步失败即中断，人工只做代码评审。
+
+## 典型应用场景
+
+- **公司自有服务器/云主机**：`node .output/server/index.mjs` + PM2 守护 + Nginx 反代，全栈能力完整保留。
+- **容器化交付**：多阶段 Dockerfile 把构建与运行分离，最终镜像只含 `.output/`，体积小吃水浅。
+- **文档/营销站**：`nuxi generate` 全静态输出，对象存储 + CDN 承载，成本趋近于零。
+- **快速上线的个人项目**：GitHub 仓库直连 Vercel/Netlify，push 即部署，预览环境自动开。
+- **多环境配置**：同一镜像用 `NUXT_API_SECRET`、`NUXT_PUBLIC_SITE_NAME` 在预发/生产间切换配置，无需重新构建。
+
+## 完整代码示例
+
+```dockerfile
+# 文件: Dockerfile
+# ---- 构建阶段：安装依赖并产出 .output/ ----
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+# ci 严格按 lockfile 安装，保证可复现
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# ---- 运行阶段：只拷产物，镜像最小化 ----
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+# .output/ 自包含，无需 node_modules 与源码
+COPY --from=build /app/.output ./.output
+EXPOSE 3000
+ENV NITRO_PORT=3000 NITRO_HOST=0.0.0.0
+CMD ["node", ".output/server/index.mjs"]
+```
+
+> 运行方式：在项目根执行 `docker build -t nuxt-learnhub . && docker run -p 3000:3000 nuxt-learnhub`，访问 `http://localhost:3000`。
+
+```yaml
+# 文件: .github/workflows/deploy.yml
+name: deploy
+on:
+    push:
+        branches: [main]
+
+jobs:
+    build-and-deploy:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: npm
+            # 严格按 lockfile 安装
+            - run: npm ci
+            # 质量关卡：类型检查 + 单元测试，失败即终止
+            - run: npm run typecheck
+            - run: npm test
+            - run: npm run build
+            # 部署一步带过：按目标平台替换，例如——
+            # Vercel: npx vercel deploy --prod --token ${{ secrets.VERCEL_TOKEN }}
+            # 自托管: rsync .output/ 到服务器后 pm2 restart nuxt-app
+            - name: deploy
+              run: echo '替换为你的部署命令（见注释示例）'
+```
+
+> 运行方式：推送到 `main` 分支即触发；在仓库 Settings → Secrets 中配置部署所需的凭据，流水线页可查看每步日志。
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    modules: ['@pinia/nuxt'],
+    runtimeConfig: {
+        // 私有配置：只在服务端可见，生产用 NUXT_API_SECRET 覆盖
+        apiSecret: 'dev-secret',
+        public: {
+            // 公开配置：会打进客户端包，生产用 NUXT_PUBLIC_SITE_NAME 覆盖
+            siteName: 'Nuxt LearnHub'
+        }
+    },
+    // 部署到子路径（如 GitHub Pages 项目站）时取消注释，或设 NUXT_APP_BASE_URL
+    // app: { baseURL: '/nuxt-learnhub/' },
+    devtools: { enabled: true },
+    compatibilityDate: '2025-07-15'
+})
+```
+
+> 运行方式：`npm run build` 后用环境变量覆盖启动：`NUXT_API_SECRET=prod-xxx NUXT_PUBLIC_SITE_NAME=LearnHub node .output/server/index.mjs`，页面中 `useRuntimeConfig()` 读到的即为覆盖后的值。
+
+## 最佳实践
+
+- **进程必须有人看护**：裸 `node` 进程挂了不会自愈。自托管至少用 PM2（`pm2 start .output/server/index.mjs --name nuxt-app && pm2 save`），或交给 systemd / 容器编排。
+- **镜像只装产物**：多阶段构建中运行阶段只 `COPY .output/`，不带源码与 devDependencies，镜像小、攻击面小、启动快。
+- **密钥永远不入库**：`apiSecret` 这类值在代码里只留开发占位符，生产值通过 `NUXT_API_SECRET` 等环境变量注入；`.env` 加进 `.gitignore`，CI 凭据放平台 Secrets。
+- **分清构建时与运行时**：`runtimeConfig` 的覆盖发生在服务启动时（运行时），意味着「一次构建产物 + 不同环境变量 = 多环境部署」；反之写死在代码或 `app.config` 里的值改一次就要重新构建。
+- **静态子路径部署先配 baseURL**：GitHub Pages 项目站等子路径场景，设 `app.baseURL`（或 `NUXT_APP_BASE_URL`），否则所有 `/_nuxt/` 资源请求打到根路径 404。
+- **上线前过一遍检查清单**：`compatibilityDate` 已固定、`nuxi typecheck` 与测试在 CI 全绿、提供 `error.vue` 兜底页、接入监控与日志采集（至少进程存活告警 + 错误上报）。
+
+## 常见问题
+
+### Q：三条部署路径怎么选？
+
+A：需要 SSR、服务端 API 或 ISR 的选 Node 自托管（或容器平台）；内容站、无动态服务的选纯静态托管；想要免运维、自动扩缩与全球边缘的选 Vercel/Netlify/Cloudflare Pages——三者用的都是同一份 `nuxi build`/`generate` 产物，切换成本低。
+
+### Q：改了环境变量为什么不生效？
+
+A：`runtimeConfig` 的环境变量覆盖发生在**进程启动时**，改完必须重启服务（`pm2 restart` / 重启容器）；另外变量名必须严格匹配 `NUXT_` 前缀约定——`apiSecret` ↔ `NUXT_API_SECRET`、`public.siteName` ↔ `NUXT_PUBLIC_SITE_NAME`。
+
+### Q：部署到 GitHub Pages 后页面空白、控制台一片 404？
+
+A：项目站部署在 `/<repo>/` 子路径下，而默认 `baseURL` 是 `/`。设置 `app.baseURL: '/<repo>/'`（或环境变量 `NUXT_APP_BASE_URL`），并用 `nuxi generate` 的产物发布，资源路径即会带上前缀。
+
+### Q：PM2 启动命令具体怎么写？
+
+A：构建完成后在 `app/` 目录执行 `pm2 start .output/server/index.mjs --name nuxt-app`，`pm2 save` 保存进程清单、`pm2 startup` 生成开机自启脚本；端口冲突时用 `NITRO_PORT=3100 pm2 start ...` 指定。
+
+## 小结
+
+- Node 自托管：`node .output/server/index.mjs` 即完整服务，`NITRO_PORT`/`NITRO_HOST` 控制监听，PM2 或 Docker 守护。
+- 纯静态：`nuxi generate` → `.output/public/` 丢任意静态托管，子路径场景牢记 `app.baseURL`。
+- Serverless/边缘：vercel/netlify/cloudflare-pages 等 Nitro 预设，多数零配置，特殊场景一行 `NITRO_PRESET`。
+- `runtimeConfig` 生产用 `NUXT_API_SECRET`、`NUXT_PUBLIC_SITE_NAME` 覆盖，发生在运行时——一次构建、多环境部署。
+- CI/CD 主线：checkout → setup-node → `npm ci` → typecheck → test → build → 部署；上线清单别漏 `compatibilityDate`、密钥隔离、`error.vue` 与监控。
+
+## 漫画对应章节
+
+> 🎨 本部分配套漫画：<a href="/comics/index.html#ep-8" target="_blank" rel="noopener">EP.08 构建部署</a>——四格漫画速览核心知识点，可与正文交叉阅读。
+
+## 自测题
+
+<details>
+<summary><b>1. 为什么说 `runtimeConfig` 支持「一次构建、多环境部署」？</b></summary>
+
+因为 `NUXT_` 前缀环境变量对 `runtimeConfig` 的覆盖发生在服务启动时（运行时），而非构建时。同一个 `.output/` 产物带上不同的 `NUXT_API_SECRET` 等变量，即可跑在预发与生产环境而无需重新构建。
+
+</details>
+
+<details>
+<summary><b>2. 用 Docker 部署 Nuxt 时，运行阶段镜像里为什么只需要 `.output/`？</b></summary>
+
+`.output/` 是自包含产物：服务端入口 `server/index.mjs` 已打包好全部运行依赖，静态资源在 `public/`。运行不依赖源码与 node_modules，所以运行阶段只拷 `.output/`，镜像最小。
+
+</details>
+
+<details>
+<summary><b>3. GitHub Actions 部署流水线中，`typecheck` 和 `test` 为什么要放在 `build` 之前？</b></summary>
+
+它们是最便宜的质量关卡：类型或测试失败时立即终止，避免浪费构建时间、更避免把带病代码部署上线。构建放最后，通过后产物直接进入部署步骤。
+
+</details>

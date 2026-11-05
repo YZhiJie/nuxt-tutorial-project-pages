@@ -1,0 +1,177 @@
+# 20. 大型 Nuxt 应用架构（单章全文）
+
+> 来源：Nuxt 4 实战教程（v2.0.0）· 在线阅读 https://yzhijie.github.io/nuxt-tutorial-project-pages/20-large-scale-architecture
+> 本文件由 scripts/build-llms.mjs 自动生成，整包见 https://yzhijie.github.io/nuxt-tutorial-project-pages/llms-full.txt
+# 20. 大型 Nuxt 应用架构
+
+> 本章示例：`layers/base/nuxt.config.ts`、`modules/audit/index.ts`、`pnpm-workspace.yaml`、`app/nuxt.config.ts`
+> 运行方式：`cd app && npm install && npm run dev`，浏览器访问 `http://localhost:3000/`，观察 layer 合并后的页面与自动导入
+
+## 概念解析
+
+**Nuxt Layers 是大型应用的第一块基石**。`nuxt.config.ts` 里的 `extends` 字段可以把一个完整 Nuxt 项目（组件、composables、页面、server 路由、配置）作为「层」继承进来，多层按声明顺序叠加，越靠后的层优先级越高、同名文件覆盖前者。auto-imports、组件注册、`app.config` 全部支持层叠合并。这让「设计系统层 + 业务基础层 + 应用层」的三明治结构成为可能：**复用不靠 npm 包发布，而靠文件系统直接继承**，改底层即时生效，没有版本发布摩擦。
+
+**自定义 Nuxt Module 是框架级扩展的正道**。用 `@nuxt/kit` 的 `defineNuxtModule` 定义模块，`addPlugin`、`addServerHandler`、`addImports`、`addComponent` 往应用里注入能力，`extendRouteRules`、`extendPages` 改写路由。与 plugin 的区别在于：module 运行在**构建期**（能改配置、生成文件、注册虚拟模块），plugin 运行在**运行时**。团队内部的埋点、审计、灰度等横切关注点，封装成 module 一次接入所有项目，比每个项目复制 plugin 强一个量级。
+
+**Monorepo 是 Layers 的天然载体**。pnpm workspace 把 `apps/*` 与 `layers/*`、`packages/*` 收进一个仓库，应用通过 `extends: ['@acme/nuxt-base']` 引用共享层（workspace 协议软链，无需发布）；叠加 Turborepo 做任务编排与构建缓存，几十个应用共享同一份 CI 时间。关键纪律：**共享层的改动视为对全部应用的变更**，需要类型检查与测试在 workspace 层面全量跑通。
+
+**约定优于配置有明确边界**。Nuxt 的文件约定（`pages/`、`components/`、`server/api/`）在单应用内是效率利器，但大型应用要敢于在边界处引入显式结构：按业务域（DDD）组织 feature 目录（`features/billing/`、`features/search/`），域内自治、域间通过显式导出通信；设计 token 与主题抽成独立 layer（CSS 变量 + `app.config`），全站统一换肤只改一处。**该守的约定一分不让（框架红利），该显式的边界一寸不糊（架构纪律）**——微前端（Module Federation、qiankun、Web Components）则是最后一道选项，只有当独立部署、多团队并行、技术栈异构三个条件同时成立时才值得引入。
+
+## 典型应用场景
+
+- **设计系统层**：`layers/ui` 沉淀品牌组件与设计 token，十个应用 `extends` 复用，换主题改一层。
+- **内部能力模块**：`modules/audit` 统一注入埋点 SDK + server 中间件，所有项目一行 `modules: ['@acme/audit']` 接入。
+- **多品牌站群**：同一套业务代码，按品牌 extends 不同 theme layer，构建出多个站点。
+- **Monorepo 应用矩阵**：`apps/store`、`apps/admin` 共享 `layers/base`，Turborepo 增量构建。
+- **业务域自治**：电商按 `features/cart`、`features/order` 组织，域内组件/接口/store 自包含。
+- **老系统渐进迁移**：用 Web Components 把新 Nuxt 模块嵌入 legacy 页面，逐步替换而非大爆炸重写。
+
+## 完整代码示例
+
+```ts
+// 文件: layers/base/nuxt.config.ts
+// 基础层：全公司共享的组件、composables 与默认配置
+export default defineNuxtConfig({
+    // 层可以有自己的 components/composables/server 目录，自动被继承
+    components: [{ path: './components', pathPrefix: false }],
+    appConfig: {
+        // 应用层可覆盖的主题 token
+        theme: { primary: '#2563eb', radius: '8px' }
+    },
+    routeRules: {
+        // 全公司统一的缓存纪律，应用层可再补充
+        '/_nuxt/**': {
+            headers: { 'cache-control': 'public, max-age=31536000, immutable' }
+        }
+    }
+})
+```
+
+```ts
+// 文件: app/nuxt.config.ts
+export default defineNuxtConfig({
+    // 继承基础层；数组靠后的层优先级更高
+    extends: ['../layers/base'],
+    appConfig: {
+        // 覆盖基础层的主题色，其余字段保持继承
+        theme: { primary: '#16a34a' }
+    },
+    modules: ['../modules/audit'],
+    compatibilityDate: '2025-07-15'
+})
+```
+
+> 运行方式：`cd app && npm install && npm run dev`，访问 `http://localhost:3000/`——基础层的组件可直接使用（无需 import），`useAppConfig().theme.primary` 读到的是覆盖后的绿色。
+
+```ts
+// 文件: modules/audit/index.ts
+import { defineNuxtModule, addPlugin, addServerHandler, createResolver } from '@nuxt/kit'
+
+export default defineNuxtModule({
+    meta: { name: '@acme/audit', configKey: 'audit' },
+    defaults: { endpoint: '/api/audit' },
+    setup(options, nuxt) {
+        const { resolve } = createResolver(import.meta.url)
+        // 注入运行时插件（客户端上报）
+        addPlugin(resolve('./runtime/plugin'))
+        // 注入服务端路由（接收审计事件）
+        addServerHandler({
+            route: '/api/audit',
+            handler: resolve('./runtime/server/audit.post')
+        })
+        // 把配置透传到 runtimeConfig，运行时可读
+        nuxt.options.runtimeConfig.audit = { endpoint: options.endpoint }
+    }
+})
+```
+
+> 运行方式：在 `app/nuxt.config.ts` 的 `modules` 里登记后 `npm run dev`，模块会自动挂载 `/api/audit` 接口与客户端插件；用 `curl -X POST http://localhost:3000/api/audit -d '{}'` 验证 server handler 生效。
+
+```yaml
+# 文件: pnpm-workspace.yaml
+packages:
+    - 'apps/*'
+    - 'layers/*'
+    - 'modules/*'
+    - 'packages/*'
+```
+
+```bash
+# 文件: 大型项目目录速查.sh
+# Monorepo 推荐结构
+tree -L 3 -d
+# .
+# ├── apps/
+# │   ├── store/          # 商城应用，extends layers/base + layers/shop
+# │   └── admin/          # 后台应用，extends layers/base
+# ├── layers/
+# │   ├── base/           # 设计 token、基础组件、统一 routeRules
+# │   └── shop/           # 电商业务域：features/cart、features/order
+# ├── modules/
+# │   └── audit/          # 横切关注点：埋点/审计 module
+# └── packages/
+#     └── types/          # 跨应用共享的 TS 类型
+
+# Turborepo 增量构建（turbo.json 声明任务依赖后）
+pnpm turbo run build --filter=store
+```
+
+> 运行方式：在 monorepo 根目录执行；`pnpm-workspace.yaml` 声明后 `pnpm install` 即完成软链，`apps/*` 里可直接 `extends: ['@acme/base']`。
+
+## 最佳实践
+
+1. **层按「稳定度」划分而非按「功能」划分**：设计系统层变动最少放最底，业务层其次，应用层最易变放最上；越是底层越要克制改动，一次破坏性修改波及全部应用。
+2. **module 只封装横切关注点**：埋点、审计、灰度、监控这类「每个项目都要、但谁也不该重写」的能力；业务逻辑留在应用代码里，别为了抽象而抽象。
+3. **共享层改动跑全量检查**：workspace 根目录的 CI 必须对依赖该层的所有应用跑 typecheck 与 test，把「改底层炸了上游」拦截在合并前。
+4. **业务域边界用显式导出守卫**：`features/billing` 只通过 `index.ts` 暴露公开 API，域内文件禁止被外部直接深路径 import（可用 ESLint `no-restricted-imports` 强制）。
+5. **主题只走 token，不写死颜色**：颜色、圆角、间距全部来自 CSS 变量 + `app.config`；任何组件里出现十六进制色值都应视为设计系统的泄漏。
+6. **微前端是最后选项**：先穷尽 layers、module、monorepo 三件武器；只有「独立部署 + 多团队 + 异构栈」三者齐备时才上 Module Federation 或 Web Components，否则付出的隔离成本远超收益。
+
+## 常见问题
+
+### Q：layer 里的页面会把应用层的同名路由覆盖掉吗？
+
+A：优先级是「应用 > 后声明的层 > 先声明的层」。应用层的 `pages/` 与 layer 的 `pages/` 会合并，同名路由应用优先；layer 更适合提供组件、composables 与默认配置，页面级覆盖要谨慎使用并在文档里写明。
+
+### Q：module 和 plugin 到底怎么选？
+
+A：一句话：构建期能做的事用 module（注册组件、注入虚拟模块、改 routeRules、生成类型），运行时才有的上下文用 plugin（拿 `nuxtApp`、注册全局指令、响应式逻辑）。module 可以通过 `addPlugin` 顺带注入 plugin，二者是配合而非二选一。
+
+### Q：`extends` 引用 npm 包和本地路径有什么区别？
+
+A：本地路径（`'../layers/base'`）零发布成本、改动即时生效，适合 monorepo 内；npm 包适合跨仓库分发，但每次改动要发版。实操上 monorepo 用 workspace 软链兼顾两者：包名引用 + 本地链接。
+
+### Q：什么时候该把 `components/` 的大杂烩重构成 feature 目录？
+
+A：经验信号：组件数超过约 50 个、或新成员找组件要靠全局搜索时。按业务域重组后，每个 feature 自带 `components/`、`composables/`、`server/`，Nuxt 的 auto-import 依然生效（需在各 feature 目录注册扫描路径），架构清晰度与开发效率兼得。
+
+## 小结
+
+- Layers：`extends` 按序层叠，后者覆盖前者，组件/配置/server 路由全部可继承。
+- Module：用 `@nuxt/kit` 在构建期扩展框架，封装横切关注点；plugin 管运行时。
+- Monorepo：pnpm workspace 收编 apps/layers/modules，Turborepo 增量构建，共享层改动全量回归。
+- 边界感：框架约定守到底，业务边界显式化（DDD feature 目录 + 显式导出）。
+- 微前端仅当独立部署、多团队、异构栈同时成立才引入，否则 layers 已够用。
+
+## 自测题
+
+<details>
+<summary><b>1. 【基础】Nuxt Layers 的覆盖优先级规则是什么，适合往 layer 里放什么？</b></summary>
+
+`extends` 数组中靠后的层优先级更高，应用自身优先级最高，同名文件与配置项高优先级覆盖低优先级。layer 适合放稳定、跨项目复用的资产：设计 token、基础组件、通用 composables、统一 routeRules 与 appConfig 默认值；易变的业务页面尽量留在应用层。
+
+</details>
+
+<details>
+<summary><b>2. 【进阶】用 `@nuxt/kit` 写一个「给所有项目注入 `/api/health` 健康检查接口」的 module，核心 API 是哪两个？</b></summary>
+
+`defineNuxtModule` 定义模块骨架（`meta` + `defaults` + `setup`），`addServerHandler({ route: '/api/health', handler })` 在构建期注册服务端路由。若还需客户端配合（如启动时 ping 一次），再用 `addPlugin` 注入运行时插件。
+
+</details>
+
+<details>
+<summary><b>3. 【挑战】团队在 monorepo 里改了 `layers/base` 的一个组件导致三个应用线上样式错乱，流程上缺了哪两道防线？</b></summary>
+
+防线一：workspace 级 CI 未对全部下游应用跑 typecheck/test/build——共享层应声明「被谁依赖」，改动触发依赖方的全量验证（Turborepo 的依赖图天然支持）。防线二：缺少视觉/主题回归——设计 token 与基础组件变更应跑截图对比（如 Playwright + 视觉回归工具），纯类型检查挡不住样式破坏。补一句纪律：底层层的 PR 必须显式标注影响面。
+
+</details>
